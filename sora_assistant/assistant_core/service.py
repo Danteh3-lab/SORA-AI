@@ -39,6 +39,11 @@ class AssistantService:
         history.append(state)
         self.events.publish("state.changed", {"state": state.value})
 
+    def reconfigure(self, config: AssistantConfig, providers: ProviderBundle | None = None) -> None:
+        self.config = config
+        self.providers = providers or build_provider_bundle(config)
+        self.events.publish("settings.changed", config.redacted())
+
     def send_text(self, message: str, session_id: str | None = None) -> AssistantTurn:
         history: list[AssistantState] = []
         session = self.store.ensure_session(session_id)
@@ -127,4 +132,3 @@ class AssistantService:
                 if memory_text:
                     return self.save_memory(memory_text, tags=["explicit"])
         return None
-

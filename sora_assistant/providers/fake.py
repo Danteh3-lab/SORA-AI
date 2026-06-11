@@ -43,3 +43,12 @@ class FakeTextToSpeechProvider(TextToSpeechProvider):
     def speak(self, text: str, voice_settings: dict[str, Any] | None = None) -> AudioResult:
         return AudioResult(audio=text.encode("utf-8"), provider=self.name, model=self.model, mime_type="text/plain")
 
+
+class BrowserTextToSpeechProvider(TextToSpeechProvider):
+    name = "browser"
+
+    def __init__(self, model: str = "browser-speech") -> None:
+        self.model = model
+
+    def speak(self, text: str, voice_settings: dict[str, Any] | None = None) -> AudioResult:
+        return AudioResult(audio=text.encode("utf-8"), provider=self.name, model=self.model, mime_type="text/plain")

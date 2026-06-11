@@ -29,7 +29,7 @@ class OpenAILLMProvider(LLMProvider):
     def __init__(self, config: AssistantConfig) -> None:
         self.config = config
         self.model = config.llm_model
-        self._client = _client(config)
+        self._client = None
 
     def generate(
         self,
@@ -46,7 +46,11 @@ class OpenAILLMProvider(LLMProvider):
         if settings:
             payload.update(settings)
 
-        response = self._client.responses.create(**payload)
+        try:
+            client = self._client or _client(self.config)
+            response = client.responses.create(**payload)
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI LLM request failed: {exc}") from exc
         text = getattr(response, "output_text", None)
         if not text:
             text = str(response)
@@ -59,16 +63,20 @@ class OpenAISpeechToTextProvider(SpeechToTextProvider):
     def __init__(self, config: AssistantConfig) -> None:
         self.config = config
         self.model = config.stt_model
-        self._client = _client(config)
+        self._client = None
 
     def transcribe(self, audio: bytes, filename: str = "audio.wav") -> TranscriptionResult:
         file_obj = BytesIO(audio)
         file_obj.name = filename
-        response = self._client.audio.transcriptions.create(
-            model=self.model,
-            file=file_obj,
-            response_format="json",
-        )
+        try:
+            client = self._client or _client(self.config)
+            response = client.audio.transcriptions.create(
+                model=self.model,
+                file=file_obj,
+                response_format="json",
+            )
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI transcription request failed: {exc}") from exc
         text = getattr(response, "text", "")
         return TranscriptionResult(text=text, provider=self.name, model=self.model)
 
@@ -79,19 +87,22 @@ class OpenAITextToSpeechProvider(TextToSpeechProvider):
     def __init__(self, config: AssistantConfig) -> None:
         self.config = config
         self.model = config.tts_model
-        self._client = _client(config)
+        self._client = None
 
     def speak(self, text: str, voice_settings: dict[str, Any] | None = None) -> AudioResult:
         settings = voice_settings or {}
-        response = self._client.audio.speech.create(
-            model=self.model,
-            voice=settings.get("voice", self.config.tts_voice),
-            input=text,
-            response_format=settings.get("response_format", "mp3"),
-        )
+        try:
+            client = self._client or _client(self.config)
+            response = client.audio.speech.create(
+                model=self.model,
+                voice=settings.get("voice", self.config.tts_voice),
+                input=text,
+                response_format=settings.get("response_format", "mp3"),
+            )
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI speech request failed: {exc}") from exc
         if hasattr(response, "read"):
             audio = response.read()
         else:
             audio = getattr(response, "content", b"")
         return AudioResult(audio=audio, provider=self.name, model=self.model, mime_type="audio/mpeg")
-

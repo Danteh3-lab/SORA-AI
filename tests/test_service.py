@@ -78,7 +78,22 @@ class AssistantServiceTests(unittest.TestCase):
             ["state.changed", "assistant.response", "state.changed"],
         )
 
+    def test_reconfigure_changes_provider_bundle_without_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = make_service(tmp)
+            updated = service.config.with_settings({"llm_model": "updated-fake"})
+            providers = ProviderBundle(
+                llm=FakeLLMProvider(model="updated-fake"),
+                stt=service.providers.stt,
+                tts=service.providers.tts,
+            )
+            service.reconfigure(updated, providers)
+            turn = service.send_text("hello")
+
+        self.assertEqual(service.config.llm_model, "updated-fake")
+        self.assertEqual(turn.assistant_text, "I heard you say: hello")
+        self.assertIn("settings.changed", [event.type for event in service.events.history])
+
 
 if __name__ == "__main__":
     unittest.main()
-

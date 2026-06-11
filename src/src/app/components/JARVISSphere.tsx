@@ -76,7 +76,7 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
       ctx.scale(dpr, dpr);
       cx = W / 2;
       cy = H / 2;
-      R = Math.min(W, H) * 0.34;
+      R = Math.min(W, H) * 0.238;
     }
     resize();
     const ro = new ResizeObserver(resize);

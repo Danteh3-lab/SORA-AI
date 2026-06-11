@@ -4,11 +4,37 @@ import base64
 import json
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from sora_assistant.assistant_core.service import AssistantService
-from sora_assistant.config import AssistantConfig
+from sora_assistant.config import ApiKeyStore, AssistantConfig
 from sora_assistant.models import AssistantTurn
 from sora_assistant.models import to_jsonable
 from sora_assistant.providers.registry import build_provider_bundle
+
+
+class TextChatRequest(BaseModel):
+    message: str = Field(min_length=1)
+    session_id: str | None = None
+
+
+class MemoryRequest(BaseModel):
+    text: str = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
+
+
+class SettingsRequest(BaseModel):
+    llm_provider: str = Field(min_length=1)
+    stt_provider: str = Field(min_length=1)
+    tts_provider: str = Field(min_length=1)
+    llm_model: str = Field(min_length=1)
+    stt_model: str = Field(min_length=1)
+    tts_model: str = Field(min_length=1)
+    tts_voice: str = Field(min_length=1)
+    openai_base_url: str = ""
+    nvidia_base_url: str = Field(min_length=1)
+    openai_api_key: str = ""
+    nvidia_api_key: str = ""
 
 
 def serialize_turn(turn: AssistantTurn) -> dict[str, Any]:
@@ -27,17 +53,17 @@ def create_app(service: AssistantService):
     try:
         from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
         from fastapi.middleware.cors import CORSMiddleware
-        from pydantic import BaseModel, Field
     except ImportError as exc:
         raise RuntimeError("Install API dependencies with: pip install -e .") from exc
 
-    class TextChatRequest(BaseModel):
-        message: str = Field(min_length=1)
-        session_id: str | None = None
+    key_store = ApiKeyStore()
 
-    class MemoryRequest(BaseModel):
-        text: str = Field(min_length=1)
-        tags: list[str] = Field(default_factory=list)
+    def settings_payload() -> dict[str, Any]:
+        return {
+            **service.config.redacted(),
+            "has_openai_api_key": bool(key_store.get_api_key("openai")),
+            "has_nvidia_api_key": bool(key_store.get_api_key("nvidia")),
+        }
 
     app = FastAPI(title="Sora Personal Assistant API", version="0.1.0")
     app.add_middleware(
@@ -52,19 +78,58 @@ def create_app(service: AssistantService):
     def health() -> dict[str, Any]:
         return {"ok": True, "config": service.config.redacted(), "state": service.state.value}
 
+    @app.get("/settings")
+    def get_settings() -> dict[str, Any]:
+        return settings_payload()
+
+    @app.put("/settings")
+    def update_settings(request: SettingsRequest) -> dict[str, Any]:
+        if request.openai_api_key.strip():
+            key_store.set_api_key("openai", request.openai_api_key.strip())
+        if request.nvidia_api_key.strip():
+            key_store.set_api_key("nvidia", request.nvidia_api_key.strip())
+
+        updated = service.config.with_settings(
+            {
+                "llm_provider": request.llm_provider,
+                "stt_provider": request.stt_provider,
+                "tts_provider": request.tts_provider,
+                "llm_model": request.llm_model,
+                "stt_model": request.stt_model,
+                "tts_model": request.tts_model,
+                "tts_voice": request.tts_voice,
+                "openai_base_url": request.openai_base_url or None,
+                "nvidia_base_url": request.nvidia_base_url,
+            }
+        )
+        try:
+            providers = build_provider_bundle(updated)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        updated.save_non_secret_settings()
+        service.reconfigure(updated, providers)
+        return settings_payload()
+
     @app.post("/chat/text")
     def chat_text(request: TextChatRequest) -> dict[str, Any]:
-        return serialize_turn(service.send_text(request.message, session_id=request.session_id))
+        try:
+            return serialize_turn(service.send_text(request.message, session_id=request.session_id))
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/chat/voice")
     async def chat_voice(
         session_id: str | None = None,
-        file: UploadFile = File(...),
+        file: Any = File(...),
     ) -> dict[str, Any]:
         audio = await file.read()
         if not audio:
             raise HTTPException(status_code=400, detail="Voice upload is empty.")
-        return serialize_turn(service.send_voice(audio, session_id=session_id, filename=file.filename or "audio.wav"))
+        try:
+            return serialize_turn(service.send_voice(audio, session_id=session_id, filename=file.filename or "audio.wav"))
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/memory")
     def create_memory(request: MemoryRequest) -> dict[str, Any]:
