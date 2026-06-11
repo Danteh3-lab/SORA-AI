@@ -64,6 +64,9 @@ def default_data_dir() -> Path:
     configured = os.environ.get("SORA_DATA_DIR")
     if configured:
         return Path(configured).expanduser()
+    railway_volume = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    if railway_volume:
+        return Path(railway_volume)
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         return Path(local_app_data) / "SoraAssistant"

@@ -14,6 +14,7 @@ export interface AssistantSettings {
   nvidia_base_url: string;
   has_openai_api_key: boolean;
   has_nvidia_api_key: boolean;
+  settings_writes_enabled: boolean;
 }
 
 interface SettingsForm extends AssistantSettings {
@@ -423,11 +424,11 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
                   fontSize: 9,
                 }}
               >
-                {message}
+                {message || (!form?.settings_writes_enabled ? "READ-ONLY DEPLOYMENT / CONFIGURE IN RAILWAY" : "")}
               </p>
               <button
                 onClick={() => void save()}
-                disabled={!form || loading || saving}
+                disabled={!form || !form.settings_writes_enabled || loading || saving}
                 className="flex items-center gap-2 rounded-lg px-4 py-2.5 disabled:opacity-40"
                 style={{
                   background: "rgba(0,229,255,0.1)",

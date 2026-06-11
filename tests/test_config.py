@@ -44,6 +44,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.resolved_stt_provider, "fake")
         self.assertEqual(config.resolved_tts_provider, "fake")
 
+    def test_railway_volume_is_default_data_directory(self):
+        with patch.dict(
+            os.environ,
+            {"RAILWAY_VOLUME_MOUNT_PATH": "/data", "SORA_PROVIDER": "fake"},
+            clear=True,
+        ):
+            config = AssistantConfig.load(Path("missing.env"))
+
+        self.assertEqual(config.data_dir, Path("/data"))
+
     def test_non_secret_settings_round_trip_to_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / ".env"

@@ -143,6 +143,46 @@ class ApiOptionalTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn("Missing NVIDIA_API_KEY", response.json()["detail"])
 
+    def test_settings_writes_are_disabled_by_default_on_railway(self):
+        try:
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest("fastapi is not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AssistantConfig(
+                provider="fake",
+                data_dir=Path(tmp),
+                llm_model="fake-llm",
+                stt_model="fake-stt",
+                tts_model="fake-tts",
+                tts_voice="fake",
+                wake_word_enabled=False,
+                wake_word="jarvis",
+            )
+            providers = ProviderBundle(FakeLLMProvider(), FakeSpeechToTextProvider(), FakeTextToSpeechProvider())
+            service = AssistantService(config, providers, SQLiteAssistantStore(Path(tmp) / "assistant.sqlite3"))
+            with patch.dict("os.environ", {"RAILWAY_ENVIRONMENT": "production"}, clear=True):
+                client = TestClient(create_app(service))
+                settings = client.get("/settings")
+                response = client.put(
+                    "/settings",
+                    json={
+                        "llm_provider": "fake",
+                        "stt_provider": "fake",
+                        "tts_provider": "fake",
+                        "llm_model": "fake-llm",
+                        "stt_model": "fake-stt",
+                        "tts_model": "fake-tts",
+                        "tts_voice": "fake",
+                        "openai_base_url": "",
+                        "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                    },
+                )
+
+        self.assertFalse(settings.json()["settings_writes_enabled"])
+        self.assertEqual(response.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

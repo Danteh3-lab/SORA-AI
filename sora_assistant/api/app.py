@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -57,17 +58,29 @@ def create_app(service: AssistantService):
         raise RuntimeError("Install API dependencies with: pip install -e .") from exc
 
     key_store = ApiKeyStore()
+    allowed_origins = [
+        origin.strip()
+        for origin in os.environ.get("SORA_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    settings_write_default = "false" if os.environ.get("RAILWAY_ENVIRONMENT") else "true"
+    settings_writes_enabled = (
+        os.environ.get("SORA_ALLOW_SETTINGS_WRITE", settings_write_default).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
 
     def settings_payload() -> dict[str, Any]:
         return {
             **service.config.redacted(),
             "has_openai_api_key": bool(key_store.get_api_key("openai")),
             "has_nvidia_api_key": bool(key_store.get_api_key("nvidia")),
+            "settings_writes_enabled": settings_writes_enabled,
         }
 
     app = FastAPI(title="Sora Personal Assistant API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
+        allow_origins=allowed_origins,
         allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
         allow_credentials=True,
         allow_methods=["*"],
@@ -84,6 +97,11 @@ def create_app(service: AssistantService):
 
     @app.put("/settings")
     def update_settings(request: SettingsRequest) -> dict[str, Any]:
+        if not settings_writes_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="Settings updates are disabled in this deployment. Configure providers through environment variables.",
+            )
         if request.openai_api_key.strip():
             key_store.set_api_key("openai", request.openai_api_key.strip())
         if request.nvidia_api_key.strip():
@@ -174,7 +192,13 @@ def main() -> None:
     except ImportError as exc:
         raise RuntimeError("Install uvicorn to run the API.") from exc
 
-    uvicorn.run("sora_assistant.api.app:create_default_app", factory=True, host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run(
+        "sora_assistant.api.app:create_default_app",
+        factory=True,
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8000")),
+        reload=False,
+    )
 
 
 if __name__ == "__main__":
