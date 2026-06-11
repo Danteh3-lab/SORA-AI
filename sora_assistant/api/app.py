@@ -195,7 +195,7 @@ def main() -> None:
     uvicorn.run(
         "sora_assistant.api.app:create_default_app",
         factory=True,
-        host=os.environ.get("HOST", "127.0.0.1"),
+        host=os.environ.get("HOST", "0.0.0.0"),
         port=int(os.environ.get("PORT", "8000")),
         reload=False,
     )

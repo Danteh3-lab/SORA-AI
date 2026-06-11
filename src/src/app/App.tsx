@@ -12,6 +12,7 @@ const API_BASE_URL =
 const SPEECH_THRESHOLD = 0.025;
 const SILENCE_AFTER_SPEECH_MS = 1200;
 const NO_SPEECH_TIMEOUT_MS = 12000;
+const LISTEN_AGAIN_DELAY_MS = 450;
 
 interface AssistantAudioPayload {
   audio_base64: string;
@@ -93,6 +94,7 @@ export default function App() {
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ttsVoice, setTtsVoice] = useState("");
+  const [handsFreeEnabled, setHandsFreeEnabled] = useState(true);
 
   const requestAbortRef = useRef<AbortController | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -103,12 +105,24 @@ export default function App() {
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
   const microphoneContextRef = useRef<AudioContext | null>(null);
   const silenceFrameRef = useRef<number | null>(null);
+  const listenAgainTimerRef = useRef<number | null>(null);
+  const handsFreeRef = useRef(true);
+  const settingsOpenRef = useRef(false);
+  const startListeningRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => setMousePos({ x: event.clientX, y: event.clientY });
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
+
+  useEffect(() => {
+    handsFreeRef.current = handsFreeEnabled;
+  }, [handsFreeEnabled]);
+
+  useEffect(() => {
+    settingsOpenRef.current = settingsOpen;
+  }, [settingsOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -157,6 +171,38 @@ export default function App() {
     audioRef.current = null;
   }, []);
 
+  const clearListenAgainTimer = useCallback(() => {
+    if (listenAgainTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(listenAgainTimerRef.current);
+    listenAgainTimerRef.current = null;
+  }, []);
+
+  const scheduleHandsFreeListening = useCallback(
+    (delay = LISTEN_AGAIN_DELAY_MS) => {
+      if (!handsFreeRef.current || settingsOpenRef.current) {
+        return;
+      }
+      if (recorderRef.current || requestAbortRef.current || speechRef.current || audioRef.current) {
+        return;
+      }
+
+      clearListenAgainTimer();
+      listenAgainTimerRef.current = window.setTimeout(() => {
+        listenAgainTimerRef.current = null;
+        if (!handsFreeRef.current || settingsOpenRef.current) {
+          return;
+        }
+        if (recorderRef.current || requestAbortRef.current || speechRef.current || audioRef.current) {
+          return;
+        }
+        void startListeningRef.current?.();
+      }, delay);
+    },
+    [clearListenAgainTimer],
+  );
+
   const speakWithBrowser = useCallback((text: string) => {
     if (isMuted || !window.speechSynthesis) {
       return false;
@@ -175,17 +221,19 @@ export default function App() {
     utterance.onend = () => {
       speechRef.current = null;
       setOrbState("idle");
-      setLiveText("Standing by.");
+      setLiveText(handsFreeRef.current ? "Voice detection active." : "Standing by.");
+      scheduleHandsFreeListening();
     };
     utterance.onerror = () => {
       speechRef.current = null;
       setOrbState("idle");
       setLiveText("Browser voice unavailable.");
+      scheduleHandsFreeListening();
     };
     speechRef.current = utterance;
     window.speechSynthesis.speak(utterance);
     return true;
-  }, [isMuted, ttsVoice]);
+  }, [isMuted, scheduleHandsFreeListening, ttsVoice]);
 
   const releaseStream = useCallback(() => {
     if (silenceFrameRef.current !== null) {
@@ -207,6 +255,7 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      clearListenAgainTimer();
       requestAbortRef.current?.abort();
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
@@ -214,7 +263,7 @@ export default function App() {
       releaseStream();
       stopAudioPlayback();
     };
-  }, [releaseStream, stopAudioPlayback]);
+  }, [clearListenAgainTimer, releaseStream, stopAudioPlayback]);
 
   useEffect(() => {
     if (!isMuted) {
@@ -248,7 +297,8 @@ export default function App() {
           audioRef.current = null;
         }
         setOrbState("idle");
-        setLiveText("Standing by.");
+        setLiveText(handsFreeRef.current ? "Voice detection active." : "Standing by.");
+        scheduleHandsFreeListening();
       };
 
       audio.onerror = () => {
@@ -258,6 +308,7 @@ export default function App() {
         }
         setOrbState("idle");
         setLiveText("Audio playback unavailable.");
+        scheduleHandsFreeListening();
       };
 
       try {
@@ -271,7 +322,7 @@ export default function App() {
         return false;
       }
     },
-    [isMuted, stopAudioPlayback],
+    [isMuted, scheduleHandsFreeListening, stopAudioPlayback],
   );
 
   const handleTurn = useCallback(
@@ -291,8 +342,9 @@ export default function App() {
       }
 
       setOrbState("idle");
+      scheduleHandsFreeListening();
     },
-    [playAssistantAudio, speakWithBrowser],
+    [playAssistantAudio, scheduleHandsFreeListening, speakWithBrowser],
   );
 
   const reportRequestError = useCallback(
@@ -403,7 +455,8 @@ export default function App() {
         releaseStream();
 
         if (!shouldSend) {
-          setLiveText("Standing by.");
+          setLiveText(handsFreeRef.current ? "Voice detection active." : "Standing by.");
+          scheduleHandsFreeListening();
           return;
         }
 
@@ -452,7 +505,7 @@ export default function App() {
           return;
         } else if (!heardSpeech && now - listeningStartedAt >= NO_SPEECH_TIMEOUT_MS) {
           recordIntentRef.current = "discard";
-          setLiveText("No voice detected. Standing by.");
+          setLiveText("Voice detection active.");
           setOrbState("idle");
           recorder.stop();
           return;
@@ -463,20 +516,33 @@ export default function App() {
       silenceFrameRef.current = requestAnimationFrame(detectSilence);
       setBackendOnline(true);
       setOrbState("listening");
-      setLiveText("Listening... speak naturally.");
+      setLiveText("Voice detection active.");
     } catch {
       releaseStream();
+      setHandsFreeEnabled(false);
       reportLocalError("Microphone access was denied or unavailable in this browser.");
     }
-  }, [releaseStream, reportLocalError, sendVoice, stopAudioPlayback]);
+  }, [releaseStream, reportLocalError, scheduleHandsFreeListening, sendVoice, stopAudioPlayback]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
+
+  useEffect(() => {
+    if (backendOnline !== true || !handsFreeEnabled || settingsOpen) {
+      return;
+    }
+    scheduleHandsFreeListening(900);
+  }, [backendOnline, handsFreeEnabled, scheduleHandsFreeListening, settingsOpen]);
 
   const interrupt = useCallback(() => {
     requestAbortRef.current?.abort();
     requestAbortRef.current = null;
     stopAudioPlayback();
     setOrbState("idle");
-    setLiveText("Interrupted.");
-  }, [stopAudioPlayback]);
+    setLiveText(handsFreeRef.current ? "Interrupted. Voice detection active." : "Interrupted.");
+    scheduleHandsFreeListening();
+  }, [scheduleHandsFreeListening, stopAudioPlayback]);
 
   const handleOrbClick = useCallback(() => {
     if (orbState === "listening") {
@@ -487,6 +553,7 @@ export default function App() {
       interrupt();
       return;
     }
+    setHandsFreeEnabled(true);
     void startListening();
   }, [interrupt, orbState, startListening, stopListening]);
 
@@ -671,7 +738,7 @@ export default function App() {
                   exit={{ opacity: 0 }}
                   style={{ fontFamily: "DM Mono, monospace", color: "#29b6f6", fontSize: 9, letterSpacing: "0.2em" }}
                 >
-                  TAP ORB TO BEGIN VOICE LINK
+                  {handsFreeEnabled ? "VOICE DETECTION ARMED" : "TAP ORB TO BEGIN VOICE LINK"}
                 </motion.p>
               )}
             </AnimatePresence>
@@ -702,10 +769,12 @@ export default function App() {
             }}
           >
             {isListening
-              ? "VOICE LINK OPEN / AUTO-SENDS AFTER SILENCE"
+              ? "VOICE DETECTION ACTIVE / AUTO-SENDS AFTER SILENCE"
               : isSpeaking
                 ? "AURA TRANSMITTING / TAP ORB TO INTERRUPT"
-                : "VOICE LINK READY"}
+                : handsFreeEnabled
+                  ? "VOICE DETECTION READY"
+                  : "VOICE LINK READY"}
           </span>
         </div>
       </div>
