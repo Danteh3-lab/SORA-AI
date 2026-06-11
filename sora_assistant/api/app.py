@@ -36,6 +36,7 @@ class SettingsRequest(BaseModel):
     nvidia_base_url: str = Field(min_length=1)
     openai_api_key: str = ""
     nvidia_api_key: str = ""
+    settings_password: str = ""
 
 
 def serialize_turn(turn: AssistantTurn) -> dict[str, Any]:
@@ -68,13 +69,16 @@ def create_app(service: AssistantService):
         os.environ.get("SORA_ALLOW_SETTINGS_WRITE", settings_write_default).strip().lower()
         in {"1", "true", "yes", "on"}
     )
+    settings_password = os.environ.get("SORA_SETTINGS_PASSWORD", "").strip()
+    settings_unlock_enabled = settings_writes_enabled or bool(settings_password)
 
     def settings_payload() -> dict[str, Any]:
         return {
             **service.config.redacted(),
             "has_openai_api_key": bool(key_store.get_api_key("openai")),
             "has_nvidia_api_key": bool(key_store.get_api_key("nvidia")),
-            "settings_writes_enabled": settings_writes_enabled,
+            "settings_writes_enabled": settings_unlock_enabled,
+            "settings_password_required": bool(settings_password),
         }
 
     app = FastAPI(title="Sora Personal Assistant API", version="0.1.0")
@@ -97,11 +101,13 @@ def create_app(service: AssistantService):
 
     @app.put("/settings")
     def update_settings(request: SettingsRequest) -> dict[str, Any]:
-        if not settings_writes_enabled:
+        if not settings_unlock_enabled:
             raise HTTPException(
                 status_code=403,
                 detail="Settings updates are disabled in this deployment. Configure providers through environment variables.",
             )
+        if settings_password and request.settings_password != settings_password:
+            raise HTTPException(status_code=401, detail="Invalid settings password.")
         if request.openai_api_key.strip():
             key_store.set_api_key("openai", request.openai_api_key.strip())
         if request.nvidia_api_key.strip():

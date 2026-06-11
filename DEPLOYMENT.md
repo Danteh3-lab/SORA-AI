@@ -18,6 +18,7 @@ SORA_TTS_MODEL=browser-speech
 SORA_TTS_VOICE=default
 SORA_ALLOWED_ORIGINS=https://s0ra.netlify.app
 SORA_ALLOW_SETTINGS_WRITE=false
+SORA_SETTINGS_PASSWORD=choose-a-private-admin-password
 ```
 
 Railway supplies `PORT` automatically. When a volume is attached, AURA automatically
@@ -36,6 +37,8 @@ Railway if the Netlify domain changes.
 
 ## Production security
 
-Settings writes are disabled automatically on Railway unless
-`SORA_ALLOW_SETTINGS_WRITE=true` is explicitly configured. Keep provider API keys in
-Railway variables, never in Git or Netlify's frontend environment variables.
+Settings writes are disabled automatically on Railway unless `SORA_SETTINGS_PASSWORD`
+is configured or `SORA_ALLOW_SETTINGS_WRITE=true` is explicitly set. Prefer the
+password option for production so the public site can be unlocked by the owner
+without opening writes to everyone. Keep provider API keys in Railway variables,
+never in Git or Netlify's frontend environment variables.

@@ -15,11 +15,13 @@ export interface AssistantSettings {
   has_openai_api_key: boolean;
   has_nvidia_api_key: boolean;
   settings_writes_enabled: boolean;
+  settings_password_required: boolean;
 }
 
 interface SettingsForm extends AssistantSettings {
   openai_api_key: string;
   nvidia_api_key: string;
+  settings_password: string;
 }
 
 interface SettingsModalProps {
@@ -113,7 +115,7 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
         return response.json() as Promise<AssistantSettings>;
       })
       .then((settings) => {
-        setForm({ ...settings, openai_api_key: "", nvidia_api_key: "" });
+        setForm({ ...settings, openai_api_key: "", nvidia_api_key: "", settings_password: "" });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -186,7 +188,7 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
       }
 
       const settings = (await response.json()) as AssistantSettings;
-      setForm({ ...settings, openai_api_key: "", nvidia_api_key: "" });
+      setForm({ ...settings, openai_api_key: "", nvidia_api_key: "", settings_password: "" });
       setMessage("Settings saved. Provider core rebuilt.");
       onSaved(settings);
     } catch (error) {
@@ -356,6 +358,18 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
                   </section>
 
                   <section className="grid gap-4 md:grid-cols-2">
+                    {form.settings_password_required && (
+                      <Field label="ADMIN PASSWORD">
+                        <input
+                          type="password"
+                          value={form.settings_password}
+                          onChange={(event) => update("settings_password", event.target.value)}
+                          placeholder="Required to save live settings"
+                          className="h-10 rounded-lg px-3 text-sm outline-none"
+                          style={inputStyle}
+                        />
+                      </Field>
+                    )}
                     <Field label="LLM MODEL">
                       <input
                         value={form.llm_model}
@@ -423,8 +437,13 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
                   fontFamily: "DM Mono, monospace",
                   fontSize: 9,
                 }}
-              >
-                {message || (!form?.settings_writes_enabled ? "READ-ONLY DEPLOYMENT / CONFIGURE IN RAILWAY" : "")}
+                >
+                {message ||
+                  (!form?.settings_writes_enabled
+                    ? "READ-ONLY DEPLOYMENT / CONFIGURE IN RAILWAY"
+                    : form.settings_password_required
+                      ? "ADMIN PASSWORD REQUIRED TO SAVE"
+                      : "")}
               </p>
               <button
                 onClick={() => void save()}

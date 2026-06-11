@@ -183,6 +183,70 @@ class ApiOptionalTests(unittest.TestCase):
         self.assertFalse(settings.json()["settings_writes_enabled"])
         self.assertEqual(response.status_code, 403)
 
+    def test_settings_password_unlocks_railway_settings_writes(self):
+        try:
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest("fastapi is not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AssistantConfig(
+                provider="fake",
+                data_dir=Path(tmp),
+                llm_model="fake-llm",
+                stt_model="fake-stt",
+                tts_model="fake-tts",
+                tts_voice="fake",
+                wake_word_enabled=False,
+                wake_word="jarvis",
+            )
+            providers = ProviderBundle(FakeLLMProvider(), FakeSpeechToTextProvider(), FakeTextToSpeechProvider())
+            service = AssistantService(config, providers, SQLiteAssistantStore(Path(tmp) / "assistant.sqlite3"))
+            with patch.dict(
+                "os.environ",
+                {"RAILWAY_ENVIRONMENT": "production", "SORA_SETTINGS_PASSWORD": "let-me-in"},
+                clear=True,
+            ):
+                client = TestClient(create_app(service))
+                settings = client.get("/settings")
+                denied = client.put(
+                    "/settings",
+                    json={
+                        "llm_provider": "fake",
+                        "stt_provider": "fake",
+                        "tts_provider": "fake",
+                        "llm_model": "fake-llm",
+                        "stt_model": "fake-stt",
+                        "tts_model": "fake-tts",
+                        "tts_voice": "fake",
+                        "openai_base_url": "",
+                        "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                        "settings_password": "wrong",
+                    },
+                )
+                with patch.object(AssistantConfig, "save_non_secret_settings"):
+                    allowed = client.put(
+                        "/settings",
+                        json={
+                            "llm_provider": "fake",
+                            "stt_provider": "fake",
+                            "tts_provider": "fake",
+                            "llm_model": "fake-llm",
+                            "stt_model": "fake-stt",
+                            "tts_model": "fake-tts",
+                            "tts_voice": "new-voice",
+                            "openai_base_url": "",
+                            "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                            "settings_password": "let-me-in",
+                        },
+                    )
+
+        self.assertTrue(settings.json()["settings_writes_enabled"])
+        self.assertTrue(settings.json()["settings_password_required"])
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(service.config.tts_voice, "new-voice")
+
 
 if __name__ == "__main__":
     unittest.main()
