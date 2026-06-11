@@ -26,7 +26,11 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src/app'),
+      // Alias @ to the src directory
+      '@': path.resolve(__dirname, './src'),
     },
   },
+
+  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
+  assetsInclude: ['**/*.svg', '**/*.csv'],
 })
