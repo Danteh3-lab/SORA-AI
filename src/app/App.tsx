@@ -49,29 +49,18 @@ export default function App() {
       <UIPanels mode={aiMode} />
       <CommandInterface apiStatus={apiStatus} mode={aiMode} onModeChange={triggerMode} />
 
-      {/* Ambient glow — color shifts with mode */}
+      {/* Ambient glow — tight dot glow */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full blur-[120px] pointer-events-none transition-all duration-1000"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200px] h-[200px] rounded-full blur-[40px] pointer-events-none transition-all duration-1000"
         style={{
           background:
             aiMode === 'listening'
-              ? 'rgba(6, 182, 212, 0.12)'
+              ? 'rgba(6, 182, 212, 0.15)'
               : aiMode === 'thinking'
-              ? 'rgba(139, 92, 246, 0.18)'
+              ? 'rgba(139, 92, 246, 0.2)'
               : aiMode === 'responding'
-              ? 'rgba(251, 191, 36, 0.10)'
-              : 'rgba(59, 130, 246, 0.10)',
-        }}
-      />
-      <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full blur-[80px] pointer-events-none transition-all duration-1000"
-        style={{
-          background:
-            aiMode === 'thinking'
-              ? 'rgba(139, 92, 246, 0.14)'
-              : aiMode === 'responding'
-              ? 'rgba(251, 191, 36, 0.08)'
-              : 'rgba(139, 92, 246, 0.08)',
+              ? 'rgba(251, 191, 36, 0.15)'
+              : 'rgba(59, 130, 246, 0.15)',
         }}
       />
     </div>

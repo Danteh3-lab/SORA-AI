@@ -98,8 +98,8 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
     resize();
     window.addEventListener('resize', resize);
 
-    // Fibonacci sphere — dense particle field
-    const numOrbs = 1800;
+    // Fibonacci sphere — sparse dot field
+    const numOrbs = 200;
     const orbs: Orb[] = [];
     for (let i = 0; i < numOrbs; i++) {
       const phi = Math.acos(-1 + (2 * i) / numOrbs);
@@ -129,8 +129,8 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
       const height = canvas.offsetHeight;
       const mode = modeRef.current;
 
-      // Trail fade — stronger trail in thinking mode
-      const trailAlpha = mode === 'thinking' ? 0.06 : mode === 'responding' ? 0.08 : 0.12;
+      // Trail fade — lighter for dot
+      const trailAlpha = mode === 'thinking' ? 0.03 : mode === 'responding' ? 0.04 : 0.06;
       ctx.fillStyle = `rgba(0, 0, 0, ${trailAlpha})`;
       ctx.fillRect(0, 0, width, height);
 
@@ -139,15 +139,15 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
       const centerX = width / 2;
       const centerY = height / 2;
 
-      // Sphere radius — expands when listening, contracts slightly when thinking
-      const baseSize = Math.min(width, height) * 0.3;
+      // Sphere radius — tiny dot
+      const baseSize = Math.min(width, height) * 0.035;
       let sphereScale = 1;
       if (mode === 'listening') {
-        sphereScale = 1 + Math.sin(time * 3) * 0.08 + 0.06; // breathe outward
+        sphereScale = 1 + Math.sin(time * 3) * 0.15;
       } else if (mode === 'thinking') {
-        sphereScale = 0.95 + Math.sin(time * 5) * 0.04;
+        sphereScale = 0.9 + Math.sin(time * 5) * 0.1;
       } else if (mode === 'responding') {
-        sphereScale = 1.1 + Math.sin(time * 2) * 0.05;
+        sphereScale = 1.2 + Math.sin(time * 2) * 0.1;
       }
       const sphereSize = baseSize * sphereScale;
 
@@ -185,7 +185,7 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
           : `rgba(139, 92, 246, ${wave.opacity * 0.5})`;
 
         ctx.strokeStyle = waveColor;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 0.8;
         ctx.beginPath();
         ctx.arc(centerX, centerY, wave.radius * (sphereSize / 100), 0, Math.PI * 2);
         ctx.stroke();
@@ -238,8 +238,8 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
         const projX = centerX + x * scale * perspective;
         const projY = centerY + y * scale * perspective;
 
-        // Connections — every Nth orb, fewer during responding
-        const connEvery = mode === 'responding' ? 60 : mode === 'thinking' ? 35 : 50;
+        // Connections — sparse for dot
+        const connEvery = mode === 'responding' ? 120 : mode === 'thinking' ? 80 : 100;
         if (index % connEvery === 0) {
           const neighbors = sortedOrbs.slice(
             Math.max(0, sortedOrbs.indexOf({ orb, index, x, y, z } as typeof sortedOrbs[0])),
@@ -260,8 +260,8 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
             }
 
             const hue = currentHue + ((avgZ + 1) / 2) * 40;
-            ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${Math.min(lineOpacity, 0.6)})`;
-            ctx.lineWidth = mode === 'thinking' ? 0.8 : 0.5;
+            ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${Math.min(lineOpacity, 0.3)})`;
+            ctx.lineWidth = mode === 'thinking' ? 0.5 : 0.3;
             ctx.beginPath();
             ctx.moveTo(projX, projY);
             ctx.lineTo(oProjX, oProjY);
@@ -294,9 +294,9 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
 
         const alpha = brightness * twinkle * 0.85;
 
-        // Tiny soft halo (very small radius, low opacity)
+        // Tiny soft halo
         if (brightness > 0.55) {
-          const haloR = 2.2 * perspective;
+          const haloR = 1.2 * perspective;
           const haloGrad = ctx.createRadialGradient(projX, projY, 0, projX, projY, haloR);
           haloGrad.addColorStop(0, `hsla(${hue}, 100%, ${lightness}%, ${alpha * 0.35})`);
           haloGrad.addColorStop(1, `hsla(${hue}, 100%, ${lightness}%, 0)`);
@@ -312,13 +312,13 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
         ctx.fillRect(projX - dotSize / 2, projY - dotSize / 2, dotSize, dotSize);
       });
 
-      // Draw central core glow
-      const coreSize = 20 + (mode === 'listening' ? Math.sin(time * 6) * 8 : 0)
-                          + (mode === 'responding' ? 15 : 0);
+      // Draw central core glow — tiny
+      const coreSize = 4 + (mode === 'listening' ? Math.sin(time * 6) * 2 : 0)
+                          + (mode === 'responding' ? 3 : 0);
       const coreGrad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, coreSize * 3);
       const coreHue = currentHue;
-      coreGrad.addColorStop(0, `hsla(${coreHue}, 100%, 95%, 0.9)`);
-      coreGrad.addColorStop(0.3, `hsla(${coreHue}, 100%, 70%, 0.5)`);
+      coreGrad.addColorStop(0, `hsla(${coreHue}, 100%, 95%, 0.7)`);
+      coreGrad.addColorStop(0.5, `hsla(${coreHue}, 100%, 70%, 0.3)`);
       coreGrad.addColorStop(1, `hsla(${coreHue}, 100%, 50%, 0)`);
       ctx.fillStyle = coreGrad;
       ctx.beginPath();
@@ -349,20 +349,20 @@ export function NeuralSphere({ mode }: { mode: AIMode }) {
         trailGrad.addColorStop(0, 'rgba(251, 191, 36, 0)');
         trailGrad.addColorStop(1, `rgba(251, 191, 36, ${0.6 * (1 - Math.abs(messenger.progress - 1))})`);
         ctx.strokeStyle = trailGrad;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(projX, projY);
         ctx.stroke();
 
         // Messenger dot
-        const mGrad = ctx.createRadialGradient(projX, projY, 0, projX, projY, 8);
+        const mGrad = ctx.createRadialGradient(projX, projY, 0, projX, projY, 3);
         mGrad.addColorStop(0, 'rgba(255, 220, 100, 1)');
         mGrad.addColorStop(0.5, 'rgba(251, 191, 36, 0.7)');
         mGrad.addColorStop(1, 'rgba(251, 191, 36, 0)');
         ctx.fillStyle = mGrad;
         ctx.beginPath();
-        ctx.arc(projX, projY, 8, 0, Math.PI * 2);
+        ctx.arc(projX, projY, 3, 0, Math.PI * 2);
         ctx.fill();
       });
 
