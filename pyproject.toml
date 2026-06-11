@@ -13,6 +13,7 @@ dependencies = [
   "keyring>=25,<26",
   "nvidia-riva-client>=2.26,<3",
   "openai>=1.50,<3",
+  "pydantic>=2.9,<3",
   "python-multipart>=0.0.9,<1",
   "uvicorn>=0.30,<1",
 ]
