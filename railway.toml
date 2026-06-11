@@ -1,9 +1,4 @@
-[build]
-builder = "RAILPACK"
-buildCommand = "pip install -e ."
-
 [deploy]
-startCommand = "HOST=0.0.0.0 python -m sora_assistant.api.app"
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

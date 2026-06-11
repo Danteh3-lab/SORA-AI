@@ -1,0 +1,13 @@
+.git
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+node_modules/
+src/node_modules/
+src/dist/
+tests/
+guidelines/
+sora_personal_assistant.egg-info/
