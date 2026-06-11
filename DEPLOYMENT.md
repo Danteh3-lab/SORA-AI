@@ -16,7 +16,7 @@ SORA_LLM_MODEL=meta/llama-3.3-70b-instruct
 SORA_STT_MODEL=nvidia/nemotron-asr-streaming
 SORA_TTS_MODEL=browser-speech
 SORA_TTS_VOICE=default
-SORA_ALLOWED_ORIGINS=https://your-site.netlify.app
+SORA_ALLOWED_ORIGINS=https://s0ra.netlify.app
 SORA_ALLOW_SETTINGS_WRITE=false
 ```
 
