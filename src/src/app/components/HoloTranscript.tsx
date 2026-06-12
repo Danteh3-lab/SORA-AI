@@ -66,7 +66,7 @@ export function HoloTranscript({ messages, visible }: HoloTranscriptProps) {
                   className="text-[9px] mt-0.5 px-1"
                   style={{ fontFamily: "DM Mono, monospace", color: "#374151" }}
                 >
-                  {isUser ? "YOU" : "AURA"} · {formatTime(msg.timestamp)}
+                  {isUser ? "YOU" : "DANTEH"} · {formatTime(msg.timestamp)}
                 </span>
               </motion.div>
             );

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from sora_assistant.assistant_core.events import EventBus
 from sora_assistant.config import AssistantConfig
@@ -9,7 +10,7 @@ from sora_assistant.models import AssistantState, AssistantTurn, Memory, Message
 from sora_assistant.providers.registry import ProviderBundle, build_provider_bundle
 
 
-SYSTEM_PROMPT = """You are a private local personal AI assistant inspired by the feel of a calm, capable lab assistant.
+DEFAULT_SYSTEM_PROMPT = """You are a private local personal AI assistant inspired by the feel of a calm, capable lab assistant.
 Be concise, practical, and conversational. Do not claim to control apps, files, messages, or the operating system.
 Use stored memories only when they are relevant. Ask before storing new long-term memory unless the user explicitly says to remember something."""
 
@@ -116,13 +117,23 @@ class AssistantService:
         return self.store.list_sessions()
 
     def _build_context(self, session_id: str) -> list[Message]:
-        messages = [Message(role="system", content=SYSTEM_PROMPT)]
+        messages = [Message(role="system", content=self._load_system_prompt())]
         memories = self.store.search_memories("", limit=12)
         if memories:
             memory_text = "\n".join(f"- {memory.text}" for memory in memories)
             messages.append(Message(role="system", content=f"Relevant saved user memories:\n{memory_text}"))
         messages.extend(self.store.list_messages(session_id, limit=30))
         return messages
+
+    def _load_system_prompt(self) -> str:
+        prompt_path = Path(self.config.instructions_file).expanduser()
+        if not prompt_path.is_absolute():
+            prompt_path = Path.cwd() / prompt_path
+        try:
+            prompt = prompt_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return DEFAULT_SYSTEM_PROMPT
+        return prompt or DEFAULT_SYSTEM_PROMPT
 
     def _memory_from_command(self, message: str) -> Memory | None:
         for pattern in MEMORY_PATTERNS:

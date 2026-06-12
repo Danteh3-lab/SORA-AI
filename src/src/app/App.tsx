@@ -601,7 +601,7 @@ export default function App() {
             className="tracking-[0.25em]"
             style={{ fontFamily: "DM Mono, monospace", color: "#00e5ff", fontSize: 12, opacity: 0.85 }}
           >
-            AURA
+            DANTEH
           </span>
           <span
             style={{ fontFamily: "DM Mono, monospace", color: "#1e3a5f", fontSize: 9, letterSpacing: "0.15em" }}
@@ -771,7 +771,7 @@ export default function App() {
             {isListening
               ? "VOICE DETECTION ACTIVE / AUTO-SENDS AFTER SILENCE"
               : isSpeaking
-                ? "AURA TRANSMITTING / TAP ORB TO INTERRUPT"
+                ? "DANTEH TRANSMITTING / TAP ORB TO INTERRUPT"
                 : handsFreeEnabled
                   ? "VOICE DETECTION READY"
                   : "VOICE LINK READY"}

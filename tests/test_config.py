@@ -65,6 +65,7 @@ class ConfigTests(unittest.TestCase):
                         "tts_provider": "fake",
                         "llm_model": "meta/test-model",
                         "nvidia_base_url": "http://localhost:9000/v1",
+                        "instructions_file": "guidelines/custom-jarvis.md",
                     }
                 )
                 config.save_non_secret_settings(env_file)
@@ -74,6 +75,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded.resolved_stt_provider, "fake")
         self.assertEqual(loaded.llm_model, "meta/test-model")
         self.assertEqual(loaded.nvidia_base_url, "http://localhost:9000/v1")
+        self.assertEqual(loaded.instructions_file, "guidelines/custom-jarvis.md")
 
 
 if __name__ == "__main__":

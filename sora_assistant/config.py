@@ -88,6 +88,7 @@ class AssistantConfig:
     stt_provider: str | None = None
     tts_provider: str | None = None
     nvidia_base_url: str = DEFAULT_NVIDIA_BASE_URL
+    instructions_file: str = "guidelines/jarvis.md"
 
     @classmethod
     def load(cls, env_file: str | Path = ".env") -> "AssistantConfig":
@@ -111,6 +112,7 @@ class AssistantConfig:
             stt_provider=os.environ.get("SORA_STT_PROVIDER", provider).strip().lower(),
             tts_provider=os.environ.get("SORA_TTS_PROVIDER", provider).strip().lower(),
             nvidia_base_url=os.environ.get("NVIDIA_BASE_URL", DEFAULT_NVIDIA_BASE_URL),
+            instructions_file=os.environ.get("SORA_INSTRUCTIONS_FILE", "guidelines/jarvis.md"),
         )
 
     @property
@@ -140,6 +142,7 @@ class AssistantConfig:
             "tts_voice",
             "openai_base_url",
             "nvidia_base_url",
+            "instructions_file",
         }
         clean = {key: value.strip() if isinstance(value, str) else value for key, value in settings.items() if key in allowed}
         return replace(self, **clean)
@@ -155,6 +158,7 @@ class AssistantConfig:
             "SORA_TTS_VOICE": self.tts_voice,
             "OPENAI_BASE_URL": self.openai_base_url or "",
             "NVIDIA_BASE_URL": self.nvidia_base_url,
+            "SORA_INSTRUCTIONS_FILE": self.instructions_file,
         }
         _write_env_file(Path(env_file), values)
 
@@ -173,6 +177,7 @@ class AssistantConfig:
             "wake_word": self.wake_word,
             "openai_base_url": self.openai_base_url or "",
             "nvidia_base_url": self.nvidia_base_url,
+            "instructions_file": self.instructions_file,
         }
 
 

@@ -6,7 +6,8 @@ from sora_assistant.assistant_core.events import EventBus
 from sora_assistant.assistant_core.service import AssistantService
 from sora_assistant.config import AssistantConfig
 from sora_assistant.memory.store import SQLiteAssistantStore
-from sora_assistant.models import AssistantState
+from sora_assistant.models import AssistantResponse, AssistantState
+from sora_assistant.providers.base import LLMProvider
 from sora_assistant.providers.fake import FakeLLMProvider, FakeSpeechToTextProvider, FakeTextToSpeechProvider
 from sora_assistant.providers.registry import ProviderBundle
 
@@ -93,6 +94,49 @@ class AssistantServiceTests(unittest.TestCase):
         self.assertEqual(service.config.llm_model, "updated-fake")
         self.assertEqual(turn.assistant_text, "I heard you say: hello")
         self.assertIn("settings.changed", [event.type for event in service.events.history])
+
+    def test_system_prompt_is_loaded_from_instruction_file(self):
+        captured: list[str] = []
+
+        class CapturingLLMProvider(LLMProvider):
+            name = "capture"
+
+            def generate(self, messages, tools=None, settings=None):
+                captured.extend(message.content for message in messages if message.role == "system")
+                return AssistantResponse(text="At your service.", provider=self.name, model="capture")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            instructions_file = Path(tmp) / "jarvis.md"
+            instructions_file.write_text(
+                "You are Jarvis. Sound polished, calm, and proactive without pretending to control hardware.",
+                encoding="utf-8",
+            )
+            config = AssistantConfig(
+                provider="fake",
+                data_dir=Path(tmp),
+                llm_model="fake-llm",
+                stt_model="fake-stt",
+                tts_model="fake-tts",
+                tts_voice="fake",
+                wake_word_enabled=False,
+                wake_word="jarvis",
+                instructions_file=str(instructions_file),
+            )
+            providers = ProviderBundle(
+                llm=CapturingLLMProvider(),
+                stt=FakeSpeechToTextProvider(),
+                tts=FakeTextToSpeechProvider(),
+            )
+            service = AssistantService(
+                config=config,
+                providers=providers,
+                store=SQLiteAssistantStore(Path(tmp) / "assistant.sqlite3"),
+                events=EventBus(),
+            )
+
+            service.send_text("hello")
+
+        self.assertTrue(any("You are Jarvis." in message for message in captured))
 
 
 if __name__ == "__main__":
