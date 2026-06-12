@@ -12,10 +12,8 @@ export interface AssistantSettings {
   tts_voice: string;
   openai_base_url: string;
   nvidia_base_url: string;
-  elevenlabs_base_url: string;
   has_openai_api_key: boolean;
   has_nvidia_api_key: boolean;
-  has_elevenlabs_api_key: boolean;
   settings_writes_enabled: boolean;
   settings_password_required: boolean;
 }
@@ -23,7 +21,6 @@ export interface AssistantSettings {
 interface SettingsForm extends AssistantSettings {
   openai_api_key: string;
   nvidia_api_key: string;
-  elevenlabs_api_key: string;
   settings_password: string;
 }
 
@@ -118,7 +115,7 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
         return response.json() as Promise<AssistantSettings>;
       })
       .then((settings) => {
-        setForm({ ...settings, openai_api_key: "", nvidia_api_key: "", elevenlabs_api_key: "", settings_password: "" });
+        setForm({ ...settings, openai_api_key: "", nvidia_api_key: "", settings_password: "" });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -167,18 +164,6 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
       if (key === "tts_provider" && value === "browser") {
         return { ...current, tts_provider: value, tts_model: "browser-speech" };
       }
-      if (key === "tts_provider" && value === "elevenlabs") {
-        return {
-          ...current,
-          tts_provider: value,
-          tts_model: current.tts_model === "browser-speech" || current.tts_model === "gpt-4o-mini-tts"
-            ? "eleven_flash_v2_5"
-            : current.tts_model,
-          tts_voice: current.tts_voice === "default" || current.tts_voice === "alloy"
-            ? "JBFqnCBsd6RMkjVDRZzb"
-            : current.tts_voice,
-        };
-      }
       return { ...current, [key]: value };
     });
   };
@@ -203,7 +188,7 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
       }
 
       const settings = (await response.json()) as AssistantSettings;
-      setForm({ ...settings, openai_api_key: "", nvidia_api_key: "", elevenlabs_api_key: "", settings_password: "" });
+      setForm({ ...settings, openai_api_key: "", nvidia_api_key: "", settings_password: "" });
       setMessage("Settings saved. Provider core rebuilt.");
       onSaved(settings);
     } catch (error) {
@@ -304,13 +289,12 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
                       >
                         <option value="fake">Fake / local test</option>
                         <option value="openai">OpenAI</option>
-                        <option value="elevenlabs">ElevenLabs</option>
                         <option value="browser">Browser voice</option>
                       </select>
                     </Field>
                   </section>
 
-                  <section className="grid gap-4 md:grid-cols-3">
+                  <section className="grid gap-4 md:grid-cols-2">
                     <div
                       className="rounded-xl p-4"
                       style={{ background: "rgba(0,229,255,0.025)", border: "1px solid rgba(0,229,255,0.1)" }}
@@ -365,37 +349,6 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
                           <input
                             value={form.nvidia_base_url}
                             onChange={(event) => update("nvidia_base_url", event.target.value)}
-                            className="h-10 rounded-lg px-3 text-sm outline-none"
-                            style={inputStyle}
-                          />
-                        </Field>
-                      </div>
-                    </div>
-
-                    <div
-                      className="rounded-xl p-4"
-                      style={{ background: "rgba(255,179,71,0.025)", border: "1px solid rgba(255,179,71,0.16)" }}
-                    >
-                      <div className="mb-4 flex items-center justify-between">
-                        <span style={{ color: "#fbbf24", fontFamily: "DM Mono, monospace", fontSize: 10 }}>ELEVENLABS</span>
-                        <StatusBadge saved={form.has_elevenlabs_api_key} />
-                      </div>
-                      <div className="flex flex-col gap-3">
-                        <Field label="API KEY">
-                          <input
-                            type="password"
-                            value={form.elevenlabs_api_key}
-                            onChange={(event) => update("elevenlabs_api_key", event.target.value)}
-                            placeholder={form.has_elevenlabs_api_key ? "Leave blank to keep saved key" : "sk_..."}
-                            className="h-10 rounded-lg px-3 text-sm outline-none"
-                            style={inputStyle}
-                          />
-                        </Field>
-                        <Field label="BASE URL">
-                          <input
-                            value={form.elevenlabs_base_url}
-                            onChange={(event) => update("elevenlabs_base_url", event.target.value)}
-                            placeholder="https://api.elevenlabs.io/v1"
                             className="h-10 rounded-lg px-3 text-sm outline-none"
                             style={inputStyle}
                           />

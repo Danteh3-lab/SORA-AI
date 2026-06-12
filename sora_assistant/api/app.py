@@ -34,10 +34,8 @@ class SettingsRequest(BaseModel):
     tts_voice: str = Field(min_length=1)
     openai_base_url: str = ""
     nvidia_base_url: str = Field(min_length=1)
-    elevenlabs_base_url: str = ""
     openai_api_key: str = ""
     nvidia_api_key: str = ""
-    elevenlabs_api_key: str = ""
     settings_password: str = ""
 
 
@@ -79,7 +77,6 @@ def create_app(service: AssistantService):
             **service.config.redacted(),
             "has_openai_api_key": bool(key_store.get_api_key("openai")),
             "has_nvidia_api_key": bool(key_store.get_api_key("nvidia")),
-            "has_elevenlabs_api_key": bool(key_store.get_api_key("elevenlabs")),
             "settings_writes_enabled": settings_unlock_enabled,
             "settings_password_required": bool(settings_password),
         }
@@ -115,8 +112,6 @@ def create_app(service: AssistantService):
             key_store.set_api_key("openai", request.openai_api_key.strip())
         if request.nvidia_api_key.strip():
             key_store.set_api_key("nvidia", request.nvidia_api_key.strip())
-        if request.elevenlabs_api_key.strip():
-            key_store.set_api_key("elevenlabs", request.elevenlabs_api_key.strip())
 
         updated = service.config.with_settings(
             {
@@ -129,7 +124,6 @@ def create_app(service: AssistantService):
                 "tts_voice": request.tts_voice,
                 "openai_base_url": request.openai_base_url or None,
                 "nvidia_base_url": request.nvidia_base_url,
-                "elevenlabs_base_url": request.elevenlabs_base_url,
             }
         )
         try:

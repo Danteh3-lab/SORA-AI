@@ -9,9 +9,6 @@ from typing import Any
 APP_NAME = "sora-personal-assistant"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-DEFAULT_ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1"
-DEFAULT_ELEVENLABS_TTS_MODEL = "eleven_flash_v2_5"
-DEFAULT_ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -91,7 +88,6 @@ class AssistantConfig:
     stt_provider: str | None = None
     tts_provider: str | None = None
     nvidia_base_url: str = DEFAULT_NVIDIA_BASE_URL
-    elevenlabs_base_url: str = DEFAULT_ELEVENLABS_BASE_URL
     instructions_file: str = "guidelines/jarvis.md"
 
     @classmethod
@@ -107,18 +103,8 @@ class AssistantConfig:
                 DEFAULT_NVIDIA_MODEL if llm_provider == "nvidia_nim" else "gpt-4o-mini",
             ),
             stt_model=os.environ.get("SORA_STT_MODEL", "gpt-4o-mini-transcribe"),
-            tts_model=os.environ.get(
-                "SORA_TTS_MODEL",
-                DEFAULT_ELEVENLABS_TTS_MODEL
-                if os.environ.get("SORA_TTS_PROVIDER", provider).strip().lower() == "elevenlabs"
-                else "gpt-4o-mini-tts",
-            ),
-            tts_voice=os.environ.get(
-                "SORA_TTS_VOICE",
-                DEFAULT_ELEVENLABS_VOICE_ID
-                if os.environ.get("SORA_TTS_PROVIDER", provider).strip().lower() == "elevenlabs"
-                else "alloy",
-            ),
+            tts_model=os.environ.get("SORA_TTS_MODEL", "gpt-4o-mini-tts"),
+            tts_voice=os.environ.get("SORA_TTS_VOICE", "alloy"),
             wake_word_enabled=_parse_bool(os.environ.get("SORA_WAKE_WORD_ENABLED")),
             wake_word=os.environ.get("SORA_WAKE_WORD", "jarvis"),
             openai_base_url=os.environ.get("OPENAI_BASE_URL") or None,
@@ -126,7 +112,6 @@ class AssistantConfig:
             stt_provider=os.environ.get("SORA_STT_PROVIDER", provider).strip().lower(),
             tts_provider=os.environ.get("SORA_TTS_PROVIDER", provider).strip().lower(),
             nvidia_base_url=os.environ.get("NVIDIA_BASE_URL", DEFAULT_NVIDIA_BASE_URL),
-            elevenlabs_base_url=os.environ.get("ELEVENLABS_BASE_URL", DEFAULT_ELEVENLABS_BASE_URL),
             instructions_file=os.environ.get("SORA_INSTRUCTIONS_FILE", "guidelines/jarvis.md"),
         )
 
@@ -157,7 +142,6 @@ class AssistantConfig:
             "tts_voice",
             "openai_base_url",
             "nvidia_base_url",
-            "elevenlabs_base_url",
             "instructions_file",
         }
         clean = {key: value.strip() if isinstance(value, str) else value for key, value in settings.items() if key in allowed}
@@ -174,7 +158,6 @@ class AssistantConfig:
             "SORA_TTS_VOICE": self.tts_voice,
             "OPENAI_BASE_URL": self.openai_base_url or "",
             "NVIDIA_BASE_URL": self.nvidia_base_url,
-            "ELEVENLABS_BASE_URL": self.elevenlabs_base_url,
             "SORA_INSTRUCTIONS_FILE": self.instructions_file,
         }
         _write_env_file(Path(env_file), values)
@@ -194,7 +177,6 @@ class AssistantConfig:
             "wake_word": self.wake_word,
             "openai_base_url": self.openai_base_url or "",
             "nvidia_base_url": self.nvidia_base_url,
-            "elevenlabs_base_url": self.elevenlabs_base_url,
             "instructions_file": self.instructions_file,
         }
 

@@ -11,13 +11,11 @@
 NVIDIA_API_KEY=your-key
 SORA_LLM_PROVIDER=nvidia_nim
 SORA_STT_PROVIDER=nvidia_nim
-SORA_TTS_PROVIDER=elevenlabs
+SORA_TTS_PROVIDER=browser
 SORA_LLM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 SORA_STT_MODEL=nvidia/nemotron-asr-streaming
-SORA_TTS_MODEL=eleven_flash_v2_5
-SORA_TTS_VOICE=JBFqnCBsd6RMkjVDRZzb
-ELEVENLABS_API_KEY=your-elevenlabs-key
-ELEVENLABS_BASE_URL=https://api.elevenlabs.io/v1
+SORA_TTS_MODEL=browser-speech
+SORA_TTS_VOICE=default
 SORA_INSTRUCTIONS_FILE=guidelines/jarvis.md
 SORA_ALLOWED_ORIGINS=https://s0ra.netlify.app
 SORA_ALLOW_SETTINGS_WRITE=false
