@@ -21,12 +21,12 @@ def _client():
 def _base_payload(model: str) -> dict[str, Any]:
     return {
         "model": model,
-        "max_tokens": 65536,
+        "max_tokens": 2048,
         "temperature": 0.60,
         "top_p": 0.95,
         "extra_body": {
             "chat_template_kwargs": {"enable_thinking": True},
-            "reasoning_budget": 16384,
+            "reasoning_budget": 1024,
         },
         "stream": False,
     }

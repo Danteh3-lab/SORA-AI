@@ -109,7 +109,8 @@ class ProviderContractTests(unittest.TestCase):
         self.assertEqual(captured["model"], "meta/test")
         self.assertEqual(captured["messages"][-1]["content"], "ping")
         self.assertEqual(captured["temperature"], 0.60)
-        self.assertEqual(captured["extra_body"]["reasoning_budget"], 16384)
+        self.assertEqual(captured["max_tokens"], 2048)
+        self.assertEqual(captured["extra_body"]["reasoning_budget"], 1024)
 
     def test_nvidia_nim_llm_wraps_provider_errors(self):
         class Completions:
