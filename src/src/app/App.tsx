@@ -459,7 +459,7 @@ export default function App() {
     async (blob: Blob) => {
       const controller = new AbortController();
       requestAbortRef.current = controller;
-      setOrbState("speaking");
+      setOrbState("thinking");
       setLiveText("Transcribing...");
 
       try {
@@ -509,7 +509,7 @@ export default function App() {
 
     recordIntentRef.current = sendRecording ? "send" : "discard";
     setLiveText(sendRecording ? "Transcribing..." : "Listening cancelled.");
-    setOrbState(sendRecording ? "speaking" : "idle");
+    setOrbState(sendRecording ? "thinking" : "idle");
     recorder.stop();
   }, []);
 
@@ -591,7 +591,7 @@ export default function App() {
         } else if (heardSpeech && now - lastSpeechAt >= SILENCE_AFTER_SPEECH_MS) {
           recordIntentRef.current = "send";
           setLiveText("Silence detected. Transcribing...");
-          setOrbState("speaking");
+          setOrbState("thinking");
           recorder.stop();
           return;
         } else if (!heardSpeech && now - listeningStartedAt >= NO_SPEECH_TIMEOUT_MS) {
@@ -640,7 +640,7 @@ export default function App() {
       stopListening(true);
       return;
     }
-    if (orbState === "speaking") {
+    if (orbState === "speaking" || orbState === "thinking") {
       interrupt();
       return;
     }
@@ -649,10 +649,11 @@ export default function App() {
   }, [interrupt, orbState, startListening, stopListening]);
 
   const isListening = orbState === "listening";
+  const isThinking = orbState === "thinking";
   const isSpeaking = orbState === "speaking";
 
-  const statusColor = isSpeaking ? "#00e5ff" : isListening ? "#40c4ff" : "#1565c0";
-  const statusText = isSpeaking ? "RESPONDING" : isListening ? "LISTENING" : "STANDBY";
+  const statusColor = isSpeaking ? "#00e5ff" : isThinking ? "#9be7ff" : isListening ? "#40c4ff" : "#1565c0";
+  const statusText = isSpeaking ? "RESPONDING" : isThinking ? "THINKING" : isListening ? "LISTENING" : "STANDBY";
 
   const handleSettingsSaved = useCallback((settings: AssistantSettings) => {
     setBackendOnline(true);
@@ -756,8 +757,7 @@ export default function App() {
         />
 
         <HoloPanels
-          isListening={isListening}
-          isSpeaking={isSpeaking}
+          state={orbState}
           liveText={liveText}
         />
 
@@ -771,8 +771,8 @@ export default function App() {
               className="text-sm text-center max-w-[280px] leading-relaxed"
               style={{
                 fontFamily: "DM Mono, monospace",
-                color: isSpeaking ? "#b3e5fc" : isListening ? "#80d8ff" : "#1e3a5f",
-                textShadow: isSpeaking || isListening ? `0 0 24px ${statusColor}66` : "none",
+                color: isSpeaking ? "#b3e5fc" : isThinking ? "#d6f8ff" : isListening ? "#80d8ff" : "#1e3a5f",
+                textShadow: isSpeaking || isThinking || isListening ? `0 0 24px ${statusColor}66` : "none",
                 fontSize: 10,
                 letterSpacing: "0.08em",
               }}
@@ -801,7 +801,7 @@ export default function App() {
                   <MicOff size={10} /> CANCEL
                 </motion.button>
               )}
-              {isSpeaking && (
+              {(isSpeaking || isThinking) && (
                 <motion.button
                   key="interrupt"
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -818,7 +818,7 @@ export default function App() {
                     letterSpacing: "0.1em",
                   }}
                 >
-                  <Square size={9} fill="#f43f5e" /> INTERRUPT
+                  <Square size={9} fill="#f43f5e" /> {isThinking ? "ABORT" : "INTERRUPT"}
                 </motion.button>
               )}
               {orbState === "idle" && (
@@ -854,16 +854,18 @@ export default function App() {
           <span
             style={{
               fontFamily: "DM Mono, monospace",
-              color: isListening || isSpeaking ? "#80d8ff" : "#1e3a5f",
+               color: isListening || isThinking || isSpeaking ? "#80d8ff" : "#1e3a5f",
               fontSize: 9,
               letterSpacing: "0.18em",
             }}
           >
-            {isListening
-              ? "VOICE DETECTION ACTIVE / AUTO-SENDS AFTER SILENCE"
-              : isSpeaking
-                ? "DANTEH TRANSMITTING / TAP ORB TO INTERRUPT"
-                : handsFreeEnabled
+             {isListening
+               ? "VOICE DETECTION ACTIVE / AUTO-SENDS AFTER SILENCE"
+               : isThinking
+                 ? "NEURAL PROCESSING ACTIVE / BUILDING RESPONSE"
+               : isSpeaking
+                 ? "DANTEH TRANSMITTING / TAP ORB TO INTERRUPT"
+                 : handsFreeEnabled
                   ? "VOICE DETECTION READY"
                   : "VOICE LINK READY"}
           </span>

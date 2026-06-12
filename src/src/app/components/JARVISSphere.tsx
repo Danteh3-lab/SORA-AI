@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-export type OrbState = "idle" | "listening" | "speaking";
+export type OrbState = "idle" | "listening" | "thinking" | "speaking";
 
 interface Props {
   state: OrbState;
@@ -21,6 +21,12 @@ const PAL = {
     core: "#40c4ff",
     glow: "rgba(64,196,255,",
     ring: "#40c4ff",
+  },
+  thinking: {
+    colors: ["#a7f3ff", "#4dd0e1", "#00acc1", "#e0f7ff", "#7dd3fc"],
+    core: "#9be7ff",
+    glow: "rgba(155,231,255,",
+    ring: "#4dd0e1",
   },
   speaking: {
     colors: ["#00e5ff", "#448aff", "#1565c0", "#82b1ff", "#00b0ff"],
@@ -183,7 +189,7 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
     let lastRippleFrame = 0;
 
     function spawnImpulse(s: OrbState) {
-      const maxImp = s === "idle" ? 6 : 14;
+      const maxImp = s === "idle" ? 6 : s === "thinking" ? 18 : 14;
       if (impulses.length >= maxImp) return;
       const pair = connPairs[Math.floor(Math.random() * connPairs.length)];
       impulses.push({ ai: pair[0], bi: pair[1], t: 0, speed: Math.random() * 0.009 + 0.004 });
@@ -194,7 +200,8 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
       const s = stateRef.current;
       const pal = PAL[s];
       const active = s !== "idle";
-      const rotSpeed = s === "speaking" ? 0.007 : s === "listening" ? 0.004 : 0.0018;
+      const rotSpeed = s === "speaking" ? 0.0075 : s === "thinking" ? 0.0056 : s === "listening" ? 0.004 : 0.0018;
+      const pulse = 0.82 + 0.18 * Math.sin(frame * (s === "speaking" ? 0.12 : s === "thinking" ? 0.09 : 0.06));
 
       // Parallax nudge
       const mx = (mouseRef.current.x / W - 0.5) * 0.06;
@@ -301,7 +308,7 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
       ctx.globalAlpha = 1;
 
       // Neural impulses
-      const impInterval = active ? 18 : 45;
+      const impInterval = s === "thinking" ? 10 : active ? 18 : 45;
       if (frame - lastImpulseFrame > impInterval) {
         spawnImpulse(s);
         lastImpulseFrame = frame;
@@ -345,7 +352,7 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
 
       // Orbital rings
       for (const ring of rings) {
-        ring.spin += ring.spinSpeed * (s === "speaking" ? 1.65 : s === "listening" ? 1.2 : 1);
+        ring.spin += ring.spinSpeed * (s === "speaking" ? 1.65 : s === "thinking" ? 1.38 : s === "listening" ? 1.2 : 1);
         const rR = ring.radius * R;
         const bY = Math.abs(rR * Math.cos(ring.inclination));
 
@@ -437,6 +444,49 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
         ctx.globalAlpha = 1;
       }
 
+      if (s === "thinking") {
+        const scanBands = 4;
+        for (let band = 0; band < scanBands; band++) {
+          const scanAngle = rotAngle * (1.7 + band * 0.15) + band * 1.2;
+          const scanRadius = R * (0.82 + band * 0.08);
+          const bandGrad = ctx.createLinearGradient(cx - scanRadius, cy, cx + scanRadius, cy);
+          bandGrad.addColorStop(0, "transparent");
+          bandGrad.addColorStop(0.5, pal.core);
+          bandGrad.addColorStop(1, "transparent");
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(scanAngle);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, scanRadius, scanRadius * 0.36, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = bandGrad;
+          ctx.lineWidth = 1.2 + band * 0.15;
+          ctx.globalAlpha = 0.18 + band * 0.05;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        const latticeCount = 18;
+        for (let i = 0; i < latticeCount; i++) {
+          const angleA = (i / latticeCount) * Math.PI * 2 + rotAngle * 0.8;
+          const angleB = angleA + Math.PI * (0.45 + 0.08 * Math.sin(frame * 0.02 + i));
+          const x1 = cx + Math.cos(angleA) * R * 0.92;
+          const y1 = cy + Math.sin(angleA) * R * 0.62;
+          const x2 = cx + Math.cos(angleB) * R * 0.9;
+          const y2 = cy + Math.sin(angleB) * R * 0.58;
+          const controlX = cx + Math.cos(angleA + 0.4) * R * 0.25;
+          const controlY = cy + Math.sin(angleB - 0.3) * R * 0.18;
+
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.quadraticCurveTo(controlX, controlY, x2, y2);
+          ctx.strokeStyle = pal.colors[i % pal.colors.length];
+          ctx.lineWidth = 0.7;
+          ctx.globalAlpha = 0.12 + 0.12 * Math.abs(Math.sin(frame * 0.05 + i));
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
       // Speaking: particle stream rings
       if (s === "speaking") {
         const streamR = R * 1.05;
@@ -455,6 +505,20 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
           ctx.beginPath();
           ctx.arc(sx, sy, 8, 0, Math.PI * 2);
           ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      if (s === "speaking") {
+        for (let echo = 0; echo < 3; echo++) {
+          const echoT = (frame * 0.008 + echo * 0.23) % 1;
+          const rr = R * (1.1 + echoT * 0.85);
+          ctx.beginPath();
+          ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+          ctx.strokeStyle = pal.core;
+          ctx.lineWidth = 1.2;
+          ctx.globalAlpha = (1 - echoT) * 0.18;
+          ctx.stroke();
         }
         ctx.globalAlpha = 1;
       }
@@ -480,7 +544,7 @@ export function JARVISSphere({ state, onClick, mouseX, mouseY }: Props) {
       }
 
       // Core glow (always)
-      const coreRad = active ? R * 0.13 : R * 0.09;
+      const coreRad = (active ? R * 0.13 : R * 0.09) * pulse;
       const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRad * 5);
       cg.addColorStop(0, "#ffffff");
       cg.addColorStop(0.15, pal.core);
