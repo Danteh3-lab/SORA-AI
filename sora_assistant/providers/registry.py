@@ -93,9 +93,13 @@ def _tts_factory(name: str) -> TTSFactory:
         from sora_assistant.providers.openai_provider import OpenAITextToSpeechProvider
 
         return OpenAITextToSpeechProvider
+    if name == "elevenlabs":
+        from sora_assistant.providers.elevenlabs_provider import ElevenLabsTextToSpeechProvider
+
+        return ElevenLabsTextToSpeechProvider
     if name == "browser":
         return lambda config: BrowserTextToSpeechProvider(model=config.tts_model)
-    raise ValueError(f"Unknown TTS provider '{name}'. Available providers: browser, fake, openai")
+    raise ValueError(f"Unknown TTS provider '{name}'. Available providers: browser, elevenlabs, fake, openai")
 
 
 def default_registry() -> ProviderRegistry:

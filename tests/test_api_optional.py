@@ -104,8 +104,10 @@ class ApiOptionalTests(unittest.TestCase):
                         "tts_voice": "fake",
                         "openai_base_url": "",
                         "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                        "elevenlabs_base_url": "https://api.elevenlabs.io/v1",
                         "openai_api_key": "",
                         "nvidia_api_key": "",
+                        "elevenlabs_api_key": "",
                     },
                 )
 
@@ -113,6 +115,7 @@ class ApiOptionalTests(unittest.TestCase):
         self.assertEqual(response.json()["llm_model"], "new-fake-llm")
         self.assertNotIn("openai_api_key", response.json())
         self.assertNotIn("nvidia_api_key", response.json())
+        self.assertNotIn("elevenlabs_api_key", response.json())
         self.assertEqual(service.config.llm_model, "new-fake-llm")
 
     def test_missing_nvidia_key_returns_clear_chat_error(self):
@@ -177,6 +180,7 @@ class ApiOptionalTests(unittest.TestCase):
                         "tts_voice": "fake",
                         "openai_base_url": "",
                         "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                        "elevenlabs_base_url": "https://api.elevenlabs.io/v1",
                     },
                 )
 
@@ -221,6 +225,7 @@ class ApiOptionalTests(unittest.TestCase):
                         "tts_voice": "fake",
                         "openai_base_url": "",
                         "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                        "elevenlabs_base_url": "https://api.elevenlabs.io/v1",
                         "settings_password": "wrong",
                     },
                 )
@@ -237,6 +242,7 @@ class ApiOptionalTests(unittest.TestCase):
                             "tts_voice": "new-voice",
                             "openai_base_url": "",
                             "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+                            "elevenlabs_base_url": "https://api.elevenlabs.io/v1",
                             "settings_password": "let-me-in",
                         },
                     )

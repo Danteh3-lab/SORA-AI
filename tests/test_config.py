@@ -65,6 +65,7 @@ class ConfigTests(unittest.TestCase):
                         "tts_provider": "fake",
                         "llm_model": "meta/test-model",
                         "nvidia_base_url": "http://localhost:9000/v1",
+                        "elevenlabs_base_url": "https://api.elevenlabs.io/v1",
                         "instructions_file": "guidelines/custom-jarvis.md",
                     }
                 )
@@ -75,6 +76,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded.resolved_stt_provider, "fake")
         self.assertEqual(loaded.llm_model, "meta/test-model")
         self.assertEqual(loaded.nvidia_base_url, "http://localhost:9000/v1")
+        self.assertEqual(loaded.elevenlabs_base_url, "https://api.elevenlabs.io/v1")
         self.assertEqual(loaded.instructions_file, "guidelines/custom-jarvis.md")
 
 

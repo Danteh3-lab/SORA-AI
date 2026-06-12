@@ -3,6 +3,7 @@ import wave
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from sora_assistant.config import AssistantConfig
 from sora_assistant.models import Message
@@ -12,6 +13,7 @@ from sora_assistant.providers.fake import (
     FakeSpeechToTextProvider,
     FakeTextToSpeechProvider,
 )
+from sora_assistant.providers.elevenlabs_provider import ElevenLabsTextToSpeechProvider
 from sora_assistant.providers.nvidia_nim_provider import NvidiaNimLLMProvider
 from sora_assistant.providers.nvidia_speech_provider import NvidiaSpeechToTextProvider
 from sora_assistant.providers.registry import build_provider_bundle
@@ -37,6 +39,45 @@ class ProviderContractTests(unittest.TestCase):
         self.assertEqual(response.audio, b"hello")
         self.assertEqual(response.provider, "browser")
         self.assertEqual(response.mime_type, "text/plain")
+
+    def test_elevenlabs_tts_maps_audio_response(self):
+        captured = {}
+
+        class Response:
+            content = b"mp3-bytes"
+
+            def raise_for_status(self):
+                return None
+
+        class Client:
+            def post(self, url, headers, json, timeout):
+                captured["url"] = url
+                captured["headers"] = headers
+                captured["json"] = json
+                captured["timeout"] = timeout
+                return Response()
+
+        config = self._config(
+            tts_provider="elevenlabs",
+            tts_model="eleven_flash_v2_5",
+            tts_voice="voice123",
+            elevenlabs_base_url="https://api.elevenlabs.io/v1",
+        )
+        with patch("sora_assistant.providers.elevenlabs_provider.ApiKeyStore.get_api_key", return_value="eleven-key"):
+            response = ElevenLabsTextToSpeechProvider(config, client=Client()).speak("Welcome back, sir.")
+
+        self.assertEqual(response.audio, b"mp3-bytes")
+        self.assertEqual(response.provider, "elevenlabs")
+        self.assertEqual(response.mime_type, "audio/mpeg")
+        self.assertEqual(captured["json"]["model_id"], "eleven_flash_v2_5")
+        self.assertEqual(captured["url"], "https://api.elevenlabs.io/v1/text-to-speech/voice123?output_format=mp3_44100_128")
+
+    def test_elevenlabs_tts_requires_api_key(self):
+        config = self._config(tts_provider="elevenlabs", tts_model="eleven_flash_v2_5", tts_voice="voice123")
+
+        with patch("sora_assistant.providers.elevenlabs_provider.ApiKeyStore.get_api_key", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "Missing ELEVENLABS_API_KEY"):
+                ElevenLabsTextToSpeechProvider(config, client=object()).speak("hello")
 
     def test_nvidia_nim_llm_maps_chat_completion_response(self):
         captured = {}
@@ -133,6 +174,12 @@ class ProviderContractTests(unittest.TestCase):
         self.assertIsInstance(bundle.stt, NvidiaSpeechToTextProvider)
         self.assertIsInstance(bundle.tts, BrowserTextToSpeechProvider)
 
+    def test_registry_builds_elevenlabs_voice(self):
+        config = self._config(tts_provider="elevenlabs", tts_model="eleven_flash_v2_5", tts_voice="voice123")
+        bundle = build_provider_bundle(config)
+
+        self.assertIsInstance(bundle.tts, ElevenLabsTextToSpeechProvider)
+
     @staticmethod
     def _config(**overrides):
         values = {
@@ -144,6 +191,7 @@ class ProviderContractTests(unittest.TestCase):
             "tts_voice": "fake",
             "wake_word_enabled": False,
             "wake_word": "jarvis",
+            "elevenlabs_base_url": "https://api.elevenlabs.io/v1",
         }
         values.update(overrides)
         return AssistantConfig(**values)
