@@ -9,40 +9,40 @@ from sora_assistant.providers.base import LLMProvider
 
 def _client():
     try:
-        import requests
+        from openai import OpenAI
     except ImportError as exc:
-        raise RuntimeError("Install the requests package to use the NVIDIA NIM provider.") from exc
-    return requests
-
-
-def _headers(config: AssistantConfig) -> dict[str, str]:
+        raise RuntimeError("Install the openai package to use the NVIDIA NIM provider.") from exc
     api_key = ApiKeyStore().get_api_key("nvidia")
     if not api_key:
         raise RuntimeError("Missing NVIDIA_API_KEY. Add it in Settings or the OS keyring.")
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
+    return OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
 
 
 def _base_payload(model: str) -> dict[str, Any]:
     return {
         "model": model,
-        "max_tokens": 512,
-        "temperature": 0.20,
-        "top_p": 0.70,
-        "frequency_penalty": 0.00,
-        "presence_penalty": 0.00,
+        "max_tokens": 65536,
+        "temperature": 0.60,
+        "top_p": 0.95,
+        "extra_body": {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "reasoning_budget": 16384,
+        },
         "stream": False,
     }
 
 
-def _extract_text(payload: dict[str, Any]) -> str:
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return ""
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
+def _merge_payload(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = {**base}
+    for key, value in overrides.items():
+        if key == "extra_body" and isinstance(value, dict) and isinstance(merged.get("extra_body"), dict):
+            merged["extra_body"] = {**merged["extra_body"], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
+def _extract_text(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -76,20 +76,19 @@ class NvidiaNimLLMProvider(LLMProvider):
         if tools:
             payload["tools"] = tools
         if settings:
-            payload.update(settings)
+            payload = _merge_payload(payload, settings)
 
         try:
-            headers = _headers(self.config)
             client = self._client or _client()
-            response = client.post(
-                f"{self.config.nvidia_base_url.rstrip('/')}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=60,
-            )
-            response.raise_for_status()
-            raw = response.json()
+            response = client.chat.completions.create(**payload)
         except Exception as exc:
             raise RuntimeError(f"NVIDIA NIM request failed: {exc}") from exc
-        text = _extract_text(raw)
+        message = response.choices[0].message
+        text = _extract_text(getattr(message, "content", ""))
+        reasoning = getattr(message, "reasoning_content", None)
+        raw = {
+            "content": text,
+            "reasoning_content": reasoning,
+            "model": getattr(response, "model", self.model),
+        }
         return AssistantResponse(text=text, provider=self.name, model=self.model, raw=raw)

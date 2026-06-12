@@ -152,12 +152,12 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
         return current;
       }
       if (key === "llm_provider" && value === "nvidia_nim" && current.llm_model === "gpt-4o-mini") {
-        return { ...current, llm_provider: value, llm_model: "meta/llama-3.3-70b-instruct" };
+        return { ...current, llm_provider: value, llm_model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" };
       }
       if (
         key === "llm_provider" &&
         value === "openai" &&
-        current.llm_model === "meta/llama-3.3-70b-instruct"
+        current.llm_model === "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
       ) {
         return { ...current, llm_provider: value, llm_model: "gpt-4o-mini" };
       }

@@ -82,20 +82,20 @@ class ProviderContractTests(unittest.TestCase):
     def test_nvidia_nim_llm_maps_chat_completion_response(self):
         captured = {}
 
-        class Response:
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return {"choices": [{"message": {"content": "NIM response"}}]}
+        class Completions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content="NIM response", reasoning_content="reasoning trace"),
+                        )
+                    ],
+                    model="meta/test",
+                )
 
         class Client:
-            def post(self, url, headers, json, timeout):
-                captured["url"] = url
-                captured["headers"] = headers
-                captured["json"] = json
-                captured["timeout"] = timeout
-                return Response()
+            chat = SimpleNamespace(completions=Completions())
 
         client = Client()
         config = self._config(llm_provider="nvidia_nim", llm_model="meta/test")
@@ -105,17 +105,18 @@ class ProviderContractTests(unittest.TestCase):
 
         self.assertEqual(response.text, "NIM response")
         self.assertEqual(response.provider, "nvidia_nim")
-        self.assertEqual(captured["json"]["model"], "meta/test")
-        self.assertEqual(captured["json"]["messages"][-1]["content"], "ping")
-        self.assertEqual(captured["json"]["temperature"], 0.20)
-        self.assertEqual(captured["url"], "https://integrate.api.nvidia.com/v1/chat/completions")
+        self.assertEqual(response.raw["reasoning_content"], "reasoning trace")
+        self.assertEqual(captured["model"], "meta/test")
+        self.assertEqual(captured["messages"][-1]["content"], "ping")
+        self.assertEqual(captured["temperature"], 0.60)
+        self.assertEqual(captured["extra_body"]["reasoning_budget"], 16384)
 
     def test_nvidia_nim_llm_wraps_provider_errors(self):
-        class Client:
-            def post(self, url, headers, json, timeout):
+        class Completions:
+            def create(self, **kwargs):
                 raise ValueError("invalid credential")
 
-        client = Client()
+        client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
         config = self._config(llm_provider="nvidia_nim", llm_model="meta/test")
 
         with self.assertRaisesRegex(RuntimeError, "NVIDIA NIM request failed"):
