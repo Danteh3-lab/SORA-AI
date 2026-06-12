@@ -12,6 +12,7 @@ const API_BASE_URL =
 const SPEECH_THRESHOLD = 0.025;
 const BARGE_IN_THRESHOLD = 0.03;
 const BARGE_IN_HOLD_MS = 180;
+const BARGE_IN_ARM_DELAY_MS = 900;
 const SILENCE_AFTER_SPEECH_MS = 1200;
 const NO_SPEECH_TIMEOUT_MS = 12000;
 const LISTEN_AGAIN_DELAY_MS = 450;
@@ -106,10 +107,10 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
   const microphoneContextRef = useRef<AudioContext | null>(null);
-  const silenceFrameRef = useRef<number | null>(null);
+  const silencePollRef = useRef<number | null>(null);
   const interruptMonitorContextRef = useRef<AudioContext | null>(null);
   const interruptMonitorStreamRef = useRef<MediaStream | null>(null);
-  const interruptFrameRef = useRef<number | null>(null);
+  const interruptPollRef = useRef<number | null>(null);
   const interruptTriggeredRef = useRef(false);
   const listenAgainTimerRef = useRef<number | null>(null);
   const handsFreeRef = useRef(true);
@@ -132,9 +133,9 @@ export default function App() {
 
   const stopInterruptMonitor = useCallback(() => {
     interruptTriggeredRef.current = false;
-    if (interruptFrameRef.current !== null) {
-      cancelAnimationFrame(interruptFrameRef.current);
-      interruptFrameRef.current = null;
+    if (interruptPollRef.current !== null) {
+      window.clearInterval(interruptPollRef.current);
+      interruptPollRef.current = null;
     }
     if (interruptMonitorContextRef.current) {
       void interruptMonitorContextRef.current.close();
@@ -229,7 +230,7 @@ export default function App() {
     [clearListenAgainTimer],
   );
 
-  const startInterruptMonitor = useCallback(async () => {
+  const startInterruptMonitor = useCallback(async (armDelayMs = BARGE_IN_ARM_DELAY_MS) => {
     if (!handsFreeRef.current || settingsOpenRef.current || recorderRef.current || interruptMonitorStreamRef.current) {
       return;
     }
@@ -253,6 +254,7 @@ export default function App() {
 
       const samples = new Float32Array(analyser.fftSize);
       let speechStartedAt: number | null = null;
+      const armedAt = performance.now() + armDelayMs;
 
       const detectInterrupt = () => {
         const playbackActive = Boolean(speechRef.current || audioRef.current);
@@ -266,6 +268,9 @@ export default function App() {
           samples.reduce((total, sample) => total + sample * sample, 0) / samples.length,
         );
         const now = performance.now();
+        if (now < armedAt) {
+          return;
+        }
 
         if (rms >= BARGE_IN_THRESHOLD) {
           speechStartedAt ??= now;
@@ -281,11 +286,9 @@ export default function App() {
         } else {
           speechStartedAt = null;
         }
-
-        interruptFrameRef.current = requestAnimationFrame(detectInterrupt);
       };
 
-      interruptFrameRef.current = requestAnimationFrame(detectInterrupt);
+      interruptPollRef.current = window.setInterval(detectInterrupt, 120);
     } catch {
       stopInterruptMonitor();
     }
@@ -320,14 +323,13 @@ export default function App() {
     };
     speechRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-    void startInterruptMonitor();
     return true;
-  }, [isMuted, scheduleHandsFreeListening, startInterruptMonitor, ttsVoice]);
+  }, [isMuted, scheduleHandsFreeListening, ttsVoice]);
 
   const releaseStream = useCallback(() => {
-    if (silenceFrameRef.current !== null) {
-      cancelAnimationFrame(silenceFrameRef.current);
-      silenceFrameRef.current = null;
+    if (silencePollRef.current !== null) {
+      window.clearInterval(silencePollRef.current);
+      silencePollRef.current = null;
     }
     if (microphoneContextRef.current) {
       void microphoneContextRef.current.close();
@@ -602,9 +604,8 @@ export default function App() {
           return;
         }
 
-        silenceFrameRef.current = requestAnimationFrame(detectSilence);
       };
-      silenceFrameRef.current = requestAnimationFrame(detectSilence);
+      silencePollRef.current = window.setInterval(detectSilence, 120);
       setBackendOnline(true);
       setOrbState("listening");
       setLiveText("Voice detection active.");
