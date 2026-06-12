@@ -8,7 +8,7 @@ from typing import Any
 
 APP_NAME = "sora-personal-assistant"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
+DEFAULT_NVIDIA_MODEL = "google/gemma-3n-e2b-it"
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
