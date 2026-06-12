@@ -10,6 +10,8 @@ const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8000";
 const SPEECH_THRESHOLD = 0.025;
+const BARGE_IN_THRESHOLD = 0.03;
+const BARGE_IN_HOLD_MS = 180;
 const SILENCE_AFTER_SPEECH_MS = 1200;
 const NO_SPEECH_TIMEOUT_MS = 12000;
 const LISTEN_AGAIN_DELAY_MS = 450;
@@ -105,6 +107,10 @@ export default function App() {
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
   const microphoneContextRef = useRef<AudioContext | null>(null);
   const silenceFrameRef = useRef<number | null>(null);
+  const interruptMonitorContextRef = useRef<AudioContext | null>(null);
+  const interruptMonitorStreamRef = useRef<MediaStream | null>(null);
+  const interruptFrameRef = useRef<number | null>(null);
+  const interruptTriggeredRef = useRef(false);
   const listenAgainTimerRef = useRef<number | null>(null);
   const handsFreeRef = useRef(true);
   const settingsOpenRef = useRef(false);
@@ -123,6 +129,25 @@ export default function App() {
   useEffect(() => {
     settingsOpenRef.current = settingsOpen;
   }, [settingsOpen]);
+
+  const stopInterruptMonitor = useCallback(() => {
+    interruptTriggeredRef.current = false;
+    if (interruptFrameRef.current !== null) {
+      cancelAnimationFrame(interruptFrameRef.current);
+      interruptFrameRef.current = null;
+    }
+    if (interruptMonitorContextRef.current) {
+      void interruptMonitorContextRef.current.close();
+      interruptMonitorContextRef.current = null;
+    }
+    if (!interruptMonitorStreamRef.current) {
+      return;
+    }
+    for (const track of interruptMonitorStreamRef.current.getTracks()) {
+      track.stop();
+    }
+    interruptMonitorStreamRef.current = null;
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -161,6 +186,7 @@ export default function App() {
   }, []);
 
   const stopAudioPlayback = useCallback(() => {
+    stopInterruptMonitor();
     window.speechSynthesis?.cancel();
     speechRef.current = null;
     if (!audioRef.current) {
@@ -169,7 +195,7 @@ export default function App() {
     audioRef.current.pause();
     audioRef.current.currentTime = 0;
     audioRef.current = null;
-  }, []);
+  }, [stopInterruptMonitor]);
 
   const clearListenAgainTimer = useCallback(() => {
     if (listenAgainTimerRef.current === null) {
@@ -203,6 +229,68 @@ export default function App() {
     [clearListenAgainTimer],
   );
 
+  const startInterruptMonitor = useCallback(async () => {
+    if (!handsFreeRef.current || settingsOpenRef.current || recorderRef.current || interruptMonitorStreamRef.current) {
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      context.createMediaStreamSource(stream).connect(analyser);
+
+      interruptMonitorStreamRef.current = stream;
+      interruptMonitorContextRef.current = context;
+      interruptTriggeredRef.current = false;
+
+      const samples = new Float32Array(analyser.fftSize);
+      let speechStartedAt: number | null = null;
+
+      const detectInterrupt = () => {
+        const playbackActive = Boolean(speechRef.current || audioRef.current);
+        if (!playbackActive) {
+          stopInterruptMonitor();
+          return;
+        }
+
+        analyser.getFloatTimeDomainData(samples);
+        const rms = Math.sqrt(
+          samples.reduce((total, sample) => total + sample * sample, 0) / samples.length,
+        );
+        const now = performance.now();
+
+        if (rms >= BARGE_IN_THRESHOLD) {
+          speechStartedAt ??= now;
+          if (!interruptTriggeredRef.current && now - speechStartedAt >= BARGE_IN_HOLD_MS) {
+            interruptTriggeredRef.current = true;
+            stopInterruptMonitor();
+            stopAudioPlayback();
+            setOrbState("idle");
+            setLiveText("Voice interruption detected. Listening...");
+            void startListeningRef.current?.();
+            return;
+          }
+        } else {
+          speechStartedAt = null;
+        }
+
+        interruptFrameRef.current = requestAnimationFrame(detectInterrupt);
+      };
+
+      interruptFrameRef.current = requestAnimationFrame(detectInterrupt);
+    } catch {
+      stopInterruptMonitor();
+    }
+  }, [stopAudioPlayback, stopInterruptMonitor]);
+
   const speakWithBrowser = useCallback((text: string) => {
     if (isMuted || !window.speechSynthesis) {
       return false;
@@ -232,8 +320,9 @@ export default function App() {
     };
     speechRef.current = utterance;
     window.speechSynthesis.speak(utterance);
+    void startInterruptMonitor();
     return true;
-  }, [isMuted, scheduleHandsFreeListening, ttsVoice]);
+  }, [isMuted, scheduleHandsFreeListening, startInterruptMonitor, ttsVoice]);
 
   const releaseStream = useCallback(() => {
     if (silenceFrameRef.current !== null) {
@@ -260,10 +349,11 @@ export default function App() {
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
       }
+      stopInterruptMonitor();
       releaseStream();
       stopAudioPlayback();
     };
-  }, [clearListenAgainTimer, releaseStream, stopAudioPlayback]);
+  }, [clearListenAgainTimer, releaseStream, stopAudioPlayback, stopInterruptMonitor]);
 
   useEffect(() => {
     if (!isMuted) {
@@ -313,6 +403,7 @@ export default function App() {
 
       try {
         await audio.play();
+        void startInterruptMonitor();
         return true;
       } catch {
         URL.revokeObjectURL(objectUrl);
@@ -322,7 +413,7 @@ export default function App() {
         return false;
       }
     },
-    [isMuted, scheduleHandsFreeListening, stopAudioPlayback],
+    [isMuted, scheduleHandsFreeListening, startInterruptMonitor, stopAudioPlayback],
   );
 
   const handleTurn = useCallback(
