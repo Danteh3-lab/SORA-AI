@@ -1,6 +1,12 @@
 import unittest
 
-from sora_assistant.discord_bot import build_discord_session_id, chunk_discord_message
+from sora_assistant.discord_bot import (
+    build_discord_session_id,
+    chunk_discord_message,
+    normalize_channel_name,
+    parse_csv_set,
+    should_auto_reply_in_channel,
+)
 
 
 class DiscordBotHelpersTests(unittest.TestCase):
@@ -22,6 +28,42 @@ class DiscordBotHelpersTests(unittest.TestCase):
 
     def test_chunk_discord_message_returns_default_for_blank_text(self):
         self.assertEqual(chunk_discord_message("   "), ["I am here, sir."])
+
+    def test_parse_csv_set_ignores_empty_values(self):
+        self.assertEqual(parse_csv_set(" danteh-chat, ,alerts "), {"danteh-chat", "alerts"})
+
+    def test_normalize_channel_name_lowercases_and_strips(self):
+        self.assertEqual(normalize_channel_name("  DANTEH-CHAT "), "danteh-chat")
+
+    def test_auto_reply_channel_matches_by_id(self):
+        self.assertTrue(
+            should_auto_reply_in_channel(
+                channel_id=42,
+                channel_name="general",
+                configured_channel_ids={42},
+                configured_channel_names={"danteh-chat"},
+            )
+        )
+
+    def test_auto_reply_channel_matches_by_name(self):
+        self.assertTrue(
+            should_auto_reply_in_channel(
+                channel_id=7,
+                channel_name="Danteh-Chat",
+                configured_channel_ids=set(),
+                configured_channel_names={"danteh-chat"},
+            )
+        )
+
+    def test_auto_reply_channel_rejects_other_channels(self):
+        self.assertFalse(
+            should_auto_reply_in_channel(
+                channel_id=7,
+                channel_name="general",
+                configured_channel_ids={42},
+                configured_channel_names={"danteh-chat"},
+            )
+        )
 
 
 if __name__ == "__main__":

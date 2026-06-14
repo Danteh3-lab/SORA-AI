@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 DISCORD_MESSAGE_LIMIT = 1900
+DEFAULT_AUTO_REPLY_CHANNEL_NAMES = frozenset({"danteh", "danteh-chat"})
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -31,6 +32,30 @@ def build_discord_session_id(
     guild_part = str(guild_id) if guild_id is not None else "dm"
     channel_part = str(channel_id) if channel_id is not None else "dm"
     return f"discord:{guild_part}:{channel_part}:{user_id}"
+
+
+def parse_csv_set(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def normalize_channel_name(name: str | None) -> str:
+    return (name or "").strip().lower()
+
+
+def should_auto_reply_in_channel(
+    *,
+    channel_id: int | None,
+    channel_name: str | None,
+    configured_channel_ids: set[int],
+    configured_channel_names: set[str],
+) -> bool:
+    if channel_id is not None and channel_id in configured_channel_ids:
+        return True
+    if normalize_channel_name(channel_name) in configured_channel_names:
+        return True
+    return False
 
 
 def chunk_discord_message(text: str, limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
@@ -70,6 +95,8 @@ class DiscordBotRuntime:
         token: str,
         guild_id: int | None = None,
         mention_replies_enabled: bool = True,
+        auto_reply_channel_ids: set[int] | None = None,
+        auto_reply_channel_names: set[str] | None = None,
     ) -> None:
         try:
             import discord
@@ -85,6 +112,8 @@ class DiscordBotRuntime:
         self.token = token
         self.guild_id = guild_id
         self.mention_replies_enabled = mention_replies_enabled
+        self.auto_reply_channel_ids = auto_reply_channel_ids or set()
+        self.auto_reply_channel_names = auto_reply_channel_names or set(DEFAULT_AUTO_REPLY_CHANNEL_NAMES)
         self._discord = discord
         self._app_commands = app_commands
         self.bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
@@ -101,11 +130,22 @@ class DiscordBotRuntime:
         guild_raw = os.environ.get("DISCORD_GUILD_ID", "").strip()
         guild_id = int(guild_raw) if guild_raw.isdigit() else None
         mention_replies_enabled = _parse_bool(os.environ.get("SORA_DISCORD_MENTION_REPLIES"), default=True)
+        auto_reply_channel_ids = {
+            int(channel_id)
+            for channel_id in parse_csv_set(os.environ.get("SORA_DISCORD_AUTO_REPLY_CHANNEL_IDS"))
+            if channel_id.isdigit()
+        }
+        auto_reply_channel_names = {
+            normalize_channel_name(name)
+            for name in parse_csv_set(os.environ.get("SORA_DISCORD_AUTO_REPLY_CHANNEL_NAMES"))
+        }
         return cls(
             service=service,
             token=token,
             guild_id=guild_id,
             mention_replies_enabled=mention_replies_enabled,
+            auto_reply_channel_ids=auto_reply_channel_ids,
+            auto_reply_channel_names=auto_reply_channel_names,
         )
 
     def _register_handlers(self) -> None:
@@ -134,13 +174,26 @@ class DiscordBotRuntime:
         async def on_message(message: discord.Message) -> None:
             if message.author.bot:
                 return
-            if not self.mention_replies_enabled or bot.user is None:
-                return
-            if bot.user not in message.mentions:
+            if bot.user is None:
                 return
 
-            prompt = re.sub(rf"<@!?{bot.user.id}>", "", message.content).strip()
+            is_mentioned = bot.user in message.mentions
+            auto_reply_channel = should_auto_reply_in_channel(
+                channel_id=message.channel.id,
+                channel_name=getattr(message.channel, "name", None),
+                configured_channel_ids=self.auto_reply_channel_ids,
+                configured_channel_names=self.auto_reply_channel_names,
+            )
+
+            if not is_mentioned and not auto_reply_channel:
+                return
+            if is_mentioned and not self.mention_replies_enabled and not auto_reply_channel:
+                return
+
+            prompt = re.sub(rf"<@!?{bot.user.id}>", "", message.content).strip() if is_mentioned else message.content.strip()
             if not prompt:
+                if auto_reply_channel:
+                    return
                 await message.reply("I am listening, sir. Mention me with a request.", mention_author=False)
                 return
 
@@ -153,7 +206,10 @@ class DiscordBotRuntime:
                 )
 
             chunks = chunk_discord_message(reply)
-            await message.reply(chunks[0], mention_author=False)
+            if auto_reply_channel and not is_mentioned:
+                await message.channel.send(chunks[0])
+            else:
+                await message.reply(chunks[0], mention_author=False)
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
