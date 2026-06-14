@@ -1,6 +1,7 @@
 import unittest
 
 from sora_assistant.discord_bot import (
+    audio_suffix_for_mime_type,
     build_discord_session_id,
     chunk_discord_message,
     normalize_channel_name,
@@ -71,6 +72,12 @@ class DiscordBotHelpersTests(unittest.TestCase):
 
     def test_global_auto_reply_can_be_disabled(self):
         self.assertFalse(should_auto_reply_globally("false"))
+
+    def test_audio_suffix_for_mime_type_maps_mp3(self):
+        self.assertEqual(audio_suffix_for_mime_type("audio/mpeg"), ".mp3")
+
+    def test_audio_suffix_for_mime_type_rejects_text(self):
+        self.assertIsNone(audio_suffix_for_mime_type("text/plain"))
 
 
 if __name__ == "__main__":

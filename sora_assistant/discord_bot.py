@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+import tempfile
 from typing import TYPE_CHECKING
 
 from sora_assistant.assistant_core.service import AssistantService
@@ -16,6 +17,14 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 DISCORD_MESSAGE_LIMIT = 1900
 DEFAULT_AUTO_REPLY_CHANNEL_NAMES = frozenset({"danteh", "danteh-chat"})
+DISCORD_AUDIO_SUFFIXES = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+}
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -64,6 +73,13 @@ def should_auto_reply_globally(value: str | None) -> bool:
     return _parse_bool(value)
 
 
+def audio_suffix_for_mime_type(mime_type: str | None) -> str | None:
+    if not mime_type:
+        return None
+    normalized = mime_type.split(";", 1)[0].strip().lower()
+    return DISCORD_AUDIO_SUFFIXES.get(normalized)
+
+
 def chunk_discord_message(text: str, limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
     clean_text = (text or "").strip()
     if not clean_text:
@@ -104,6 +120,7 @@ class DiscordBotRuntime:
         auto_reply_all_channels: bool = True,
         auto_reply_channel_ids: set[int] | None = None,
         auto_reply_channel_names: set[str] | None = None,
+        ffmpeg_path: str = "ffmpeg",
     ) -> None:
         try:
             import discord
@@ -122,6 +139,7 @@ class DiscordBotRuntime:
         self.auto_reply_all_channels = auto_reply_all_channels
         self.auto_reply_channel_ids = auto_reply_channel_ids or set()
         self.auto_reply_channel_names = auto_reply_channel_names or set(DEFAULT_AUTO_REPLY_CHANNEL_NAMES)
+        self.ffmpeg_path = ffmpeg_path
         self._discord = discord
         self._app_commands = app_commands
         self.bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
@@ -148,6 +166,7 @@ class DiscordBotRuntime:
             normalize_channel_name(name)
             for name in parse_csv_set(os.environ.get("SORA_DISCORD_AUTO_REPLY_CHANNEL_NAMES"))
         }
+        ffmpeg_path = os.environ.get("SORA_DISCORD_FFMPEG_PATH", "ffmpeg").strip() or "ffmpeg"
         return cls(
             service=service,
             token=token,
@@ -156,6 +175,7 @@ class DiscordBotRuntime:
             auto_reply_all_channels=auto_reply_all_channels,
             auto_reply_channel_ids=auto_reply_channel_ids,
             auto_reply_channel_names=auto_reply_channel_names,
+            ffmpeg_path=ffmpeg_path,
         )
 
     def _register_handlers(self) -> None:
@@ -242,6 +262,66 @@ class DiscordBotRuntime:
         async def ping(interaction: discord.Interaction) -> None:
             await interaction.response.send_message("Online and ready, sir.")
 
+        @bot.tree.command(name="join", description="Join your current voice channel")
+        async def join(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                voice_client = await self._join_user_voice_channel(interaction)
+            except RuntimeError as exc:
+                await interaction.followup.send(str(exc))
+                return
+            await interaction.followup.send(f"Joined **{voice_client.channel.name}**, sir.")
+
+        @bot.tree.command(name="leave", description="Leave the current voice channel")
+        async def leave(interaction: discord.Interaction) -> None:
+            guild = interaction.guild
+            if guild is None:
+                await interaction.response.send_message("This command only works inside a server.", ephemeral=True)
+                return
+
+            voice_client = guild.voice_client
+            if voice_client is None:
+                await interaction.response.send_message("I am not in a voice channel right now, sir.")
+                return
+
+            channel_name = getattr(voice_client.channel, "name", "voice")
+            await voice_client.disconnect()
+            await interaction.response.send_message(f"Left **{channel_name}**, sir.")
+
+        @bot.tree.command(name="say", description="Speak a line in your current voice channel")
+        @app_commands.describe(text="What DANTEH should say aloud")
+        async def say(interaction: discord.Interaction, text: str) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                voice_client = await self._join_user_voice_channel(interaction)
+                await self._speak_text(voice_client, text)
+            except RuntimeError as exc:
+                await interaction.followup.send(str(exc))
+                return
+            await interaction.followup.send(f"Speaking in **{voice_client.channel.name}**, sir.")
+
+        @bot.tree.command(name="voiceask", description="Ask DANTEH and hear the reply in voice")
+        @app_commands.describe(prompt="What you want DANTEH to answer out loud")
+        async def voiceask(interaction: discord.Interaction, prompt: str) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                voice_client = await self._join_user_voice_channel(interaction)
+                reply = await self._ask_service(
+                    prompt,
+                    user_id=interaction.user.id,
+                    guild_id=interaction.guild_id,
+                    channel_id=interaction.channel_id,
+                )
+                await self._speak_text(voice_client, reply)
+            except RuntimeError as exc:
+                await interaction.followup.send(str(exc))
+                return
+
+            chunks = chunk_discord_message(reply)
+            await interaction.followup.send(chunks[0])
+            for chunk in chunks[1:]:
+                await interaction.followup.send(chunk)
+
     async def _ask_service(
         self,
         prompt: str,
@@ -257,6 +337,75 @@ class DiscordBotRuntime:
             LOGGER.exception("Discord assistant request failed")
             return f"Backend request failed: {exc}"
         return turn.assistant_text.strip() or "I am here, sir."
+
+    async def _join_user_voice_channel(self, interaction) -> "discord.VoiceClient":
+        guild = interaction.guild
+        if guild is None:
+            raise RuntimeError("Voice commands only work inside a server, sir.")
+
+        member_voice = getattr(interaction.user, "voice", None)
+        target_channel = getattr(member_voice, "channel", None)
+        if target_channel is None:
+            raise RuntimeError("Join a voice channel first, sir.")
+
+        voice_client = guild.voice_client
+        try:
+            if voice_client is None:
+                voice_client = await target_channel.connect(timeout=20.0, reconnect=True)
+            elif voice_client.channel.id != target_channel.id:
+                await voice_client.move_to(target_channel)
+        except Exception as exc:
+            raise RuntimeError(f"Discord voice connection failed: {exc}") from exc
+
+        return voice_client
+
+    async def _speak_text(self, voice_client: "discord.VoiceClient", text: str) -> None:
+        if voice_client.is_playing():
+            raise RuntimeError("I am already speaking in voice, sir.")
+
+        try:
+            audio_result = await asyncio.to_thread(self.service.providers.tts.speak, text)
+        except (RuntimeError, ValueError) as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        suffix = audio_suffix_for_mime_type(audio_result.mime_type)
+        if suffix is None:
+            raise RuntimeError(
+                "The configured TTS provider cannot be streamed to Discord voice. Use a server-side audio provider such as OpenAI TTS."
+            )
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_audio:
+            temp_audio.write(audio_result.audio)
+            temp_path = temp_audio.name
+
+        loop = asyncio.get_running_loop()
+        done: asyncio.Future[None] = loop.create_future()
+        source = None
+
+        def after_playback(error):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+            if done.done():
+                return
+            if error is not None:
+                loop.call_soon_threadsafe(done.set_exception, RuntimeError(f"Discord voice playback failed: {error}"))
+            else:
+                loop.call_soon_threadsafe(done.set_result, None)
+
+        try:
+            source = self._discord.FFmpegPCMAudio(temp_path, executable=self.ffmpeg_path)
+            voice_client.play(source, after=after_playback)
+        except Exception as exc:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise RuntimeError(f"Discord voice playback setup failed: {exc}") from exc
+
+        await done
 
     async def start(self) -> None:
         if self._task and not self._task.done():
