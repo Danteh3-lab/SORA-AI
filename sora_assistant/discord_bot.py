@@ -5,6 +5,9 @@ import logging
 import os
 import re
 import tempfile
+import wave
+from collections import defaultdict
+from io import BytesIO
 from typing import TYPE_CHECKING
 
 from sora_assistant.assistant_core.service import AssistantService
@@ -17,6 +20,10 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 DISCORD_MESSAGE_LIMIT = 1900
 DEFAULT_AUTO_REPLY_CHANNEL_NAMES = frozenset({"danteh", "danteh-chat"})
+DISCORD_PCM_SAMPLE_RATE = 48000
+DISCORD_PCM_CHANNELS = 2
+DISCORD_PCM_SAMPLE_WIDTH = 2
+MINIMUM_UTTERANCE_BYTES = DISCORD_PCM_SAMPLE_RATE * DISCORD_PCM_CHANNELS * DISCORD_PCM_SAMPLE_WIDTH // 2
 DISCORD_AUDIO_SUFFIXES = {
     "audio/mpeg": ".mp3",
     "audio/mp3": ".mp3",
@@ -78,6 +85,22 @@ def audio_suffix_for_mime_type(mime_type: str | None) -> str | None:
         return None
     normalized = mime_type.split(";", 1)[0].strip().lower()
     return DISCORD_AUDIO_SUFFIXES.get(normalized)
+
+
+def pcm_to_wav_bytes(
+    pcm_audio: bytes,
+    *,
+    sample_rate: int = DISCORD_PCM_SAMPLE_RATE,
+    channels: int = DISCORD_PCM_CHANNELS,
+    sample_width: int = DISCORD_PCM_SAMPLE_WIDTH,
+) -> bytes:
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm_audio)
+    return buffer.getvalue()
 
 
 def chunk_discord_message(text: str, limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
@@ -145,6 +168,8 @@ class DiscordBotRuntime:
         self.bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
         self._task: asyncio.Task[None] | None = None
         self._ready = asyncio.Event()
+        self._voice_reply_locks: dict[int, asyncio.Lock] = {}
+        self._voice_sinks: dict[int, object] = {}
         self._register_handlers()
 
     @classmethod
@@ -267,6 +292,7 @@ class DiscordBotRuntime:
             await interaction.response.defer(thinking=True)
             try:
                 voice_client = await self._join_user_voice_channel(interaction)
+                self._ensure_voice_listening(voice_client)
             except RuntimeError as exc:
                 await interaction.followup.send(str(exc))
                 return
@@ -294,6 +320,7 @@ class DiscordBotRuntime:
             await interaction.response.defer(thinking=True)
             try:
                 voice_client = await self._join_user_voice_channel(interaction)
+                self._ensure_voice_listening(voice_client)
                 await self._speak_text(voice_client, text)
             except RuntimeError as exc:
                 await interaction.followup.send(str(exc))
@@ -306,6 +333,7 @@ class DiscordBotRuntime:
             await interaction.response.defer(thinking=True)
             try:
                 voice_client = await self._join_user_voice_channel(interaction)
+                self._ensure_voice_listening(voice_client)
                 reply = await self._ask_service(
                     prompt,
                     user_id=interaction.user.id,
@@ -339,6 +367,11 @@ class DiscordBotRuntime:
         return turn.assistant_text.strip() or "I am here, sir."
 
     async def _join_user_voice_channel(self, interaction) -> "discord.VoiceClient":
+        try:
+            from discord.ext import voice_recv
+        except ImportError as exc:
+            raise RuntimeError("discord-ext-voice-recv is required for Discord voice conversations.") from exc
+
         guild = interaction.guild
         if guild is None:
             raise RuntimeError("Voice commands only work inside a server, sir.")
@@ -351,13 +384,26 @@ class DiscordBotRuntime:
         voice_client = guild.voice_client
         try:
             if voice_client is None:
-                voice_client = await target_channel.connect(timeout=20.0, reconnect=True)
+                voice_client = await target_channel.connect(cls=voice_recv.VoiceRecvClient, timeout=20.0, reconnect=True)
+            elif not hasattr(voice_client, "listen"):
+                await voice_client.disconnect()
+                voice_client = await target_channel.connect(cls=voice_recv.VoiceRecvClient, timeout=20.0, reconnect=True)
             elif voice_client.channel.id != target_channel.id:
                 await voice_client.move_to(target_channel)
         except Exception as exc:
             raise RuntimeError(f"Discord voice connection failed: {exc}") from exc
 
         return voice_client
+
+    def _ensure_voice_listening(self, voice_client) -> None:
+        if not hasattr(voice_client, "listen"):
+            raise RuntimeError("This Discord voice client does not support voice receive.")
+        if voice_client.is_listening():
+            return
+
+        sink = build_voice_conversation_sink(self, voice_client.guild.id)
+        self._voice_sinks[voice_client.guild.id] = sink
+        voice_client.listen(sink)
 
     async def _speak_text(self, voice_client: "discord.VoiceClient", text: str) -> None:
         if voice_client.is_playing():
@@ -407,6 +453,46 @@ class DiscordBotRuntime:
 
         await done
 
+    async def _handle_voice_utterance(
+        self,
+        *,
+        guild_id: int,
+        channel_id: int,
+        user_id: int,
+        pcm_audio: bytes,
+        voice_client,
+    ) -> None:
+        if len(pcm_audio) < MINIMUM_UTTERANCE_BYTES:
+            return
+
+        lock = self._voice_reply_locks.setdefault(guild_id, asyncio.Lock())
+        async with lock:
+            wav_audio = pcm_to_wav_bytes(pcm_audio)
+            try:
+                transcription = await asyncio.to_thread(
+                    self.service.providers.stt.transcribe,
+                    wav_audio,
+                    "discord-voice.wav",
+                )
+            except (RuntimeError, ValueError) as exc:
+                LOGGER.warning("Discord voice transcription failed: %s", exc)
+                return
+
+            prompt = transcription.text.strip()
+            if not prompt:
+                return
+
+            reply = await self._ask_service(
+                prompt,
+                user_id=user_id,
+                guild_id=guild_id,
+                channel_id=channel_id,
+            )
+            try:
+                await self._speak_text(voice_client, reply)
+            except RuntimeError as exc:
+                LOGGER.warning("Discord voice reply failed: %s", exc)
+
     async def start(self) -> None:
         if self._task and not self._task.done():
             return
@@ -421,3 +507,55 @@ class DiscordBotRuntime:
         except asyncio.CancelledError:
             pass
         self._task = None
+
+
+def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
+    try:
+        from discord.ext import voice_recv
+    except ImportError as exc:
+        raise RuntimeError("discord-ext-voice-recv is required for Discord voice conversations.") from exc
+
+    buffers: dict[int, bytearray] = defaultdict(bytearray)
+    event_loop = runtime.bot.loop
+
+    class Sink(voice_recv.AudioSink):
+        def __init__(self) -> None:
+            super().__init__()
+
+        def wants_opus(self) -> bool:
+            return False
+
+        def write(self, user, data) -> None:
+            if user is None or getattr(user, "bot", False):
+                return
+            if data.pcm:
+                buffers[user.id].extend(data.pcm)
+
+        @voice_recv.AudioSink.listener()
+        def on_voice_member_speaking_stop(self, member) -> None:
+            if getattr(member, "bot", False):
+                return
+            pcm_audio = bytes(buffers.pop(member.id, b""))
+            if not pcm_audio:
+                return
+
+            voice_client = self.voice_client
+            if voice_client is None:
+                return
+
+            event_loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(
+                    runtime._handle_voice_utterance(
+                        guild_id=guild_id,
+                        channel_id=voice_client.channel.id,
+                        user_id=member.id,
+                        pcm_audio=pcm_audio,
+                        voice_client=voice_client,
+                    )
+                )
+            )
+
+        def cleanup(self) -> None:
+            buffers.clear()
+
+    return Sink()

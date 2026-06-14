@@ -1,10 +1,13 @@
 import unittest
+import wave
+from io import BytesIO
 
 from sora_assistant.discord_bot import (
     audio_suffix_for_mime_type,
     build_discord_session_id,
     chunk_discord_message,
     normalize_channel_name,
+    pcm_to_wav_bytes,
     parse_csv_set,
     should_auto_reply_globally,
     should_auto_reply_in_channel,
@@ -78,6 +81,15 @@ class DiscordBotHelpersTests(unittest.TestCase):
 
     def test_audio_suffix_for_mime_type_rejects_text(self):
         self.assertIsNone(audio_suffix_for_mime_type("text/plain"))
+
+    def test_pcm_to_wav_bytes_wraps_raw_pcm_in_wav_container(self):
+        wav_audio = pcm_to_wav_bytes(b"\x00\x00" * 100)
+
+        with wave.open(BytesIO(wav_audio), "rb") as wav_file:
+            self.assertEqual(wav_file.getnchannels(), 2)
+            self.assertEqual(wav_file.getsampwidth(), 2)
+            self.assertEqual(wav_file.getframerate(), 48000)
+            self.assertEqual(len(wav_file.readframes(100)), 200)
 
 
 if __name__ == "__main__":
