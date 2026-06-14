@@ -9,5 +9,4 @@ node_modules/
 src/node_modules/
 src/dist/
 tests/
-guidelines/
 sora_personal_assistant.egg-info/
