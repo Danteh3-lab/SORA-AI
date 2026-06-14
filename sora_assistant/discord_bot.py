@@ -23,6 +23,7 @@ DEFAULT_AUTO_REPLY_CHANNEL_NAMES = frozenset({"danteh", "danteh-chat"})
 DISCORD_PCM_SAMPLE_RATE = 48000
 DISCORD_PCM_CHANNELS = 2
 DISCORD_PCM_SAMPLE_WIDTH = 2
+NVIDIA_ASR_SAMPLE_RATE = 16000
 MINIMUM_UTTERANCE_BYTES = DISCORD_PCM_SAMPLE_RATE * DISCORD_PCM_CHANNELS * DISCORD_PCM_SAMPLE_WIDTH // 2
 DISCORD_AUDIO_SUFFIXES = {
     "audio/mpeg": ".mp3",
@@ -98,6 +99,26 @@ def pcm_stereo_to_mono(
         import audioop_lts as audioop
 
     return audioop.tomono(pcm_audio, sample_width, 0.5, 0.5)
+
+
+def pcm_resample(
+    pcm_audio: bytes,
+    *,
+    from_rate: int,
+    to_rate: int,
+    sample_width: int = DISCORD_PCM_SAMPLE_WIDTH,
+    channels: int = 1,
+) -> bytes:
+    if from_rate == to_rate:
+        return pcm_audio
+
+    try:
+        import audioop
+    except ImportError:
+        import audioop_lts as audioop
+
+    converted, _ = audioop.ratecv(pcm_audio, sample_width, channels, from_rate, to_rate, None)
+    return converted
 
 
 def pcm_to_wav_bytes(
@@ -481,9 +502,16 @@ class DiscordBotRuntime:
         lock = self._voice_reply_locks.setdefault(guild_id, asyncio.Lock())
         async with lock:
             mono_audio = pcm_stereo_to_mono(pcm_audio)
-            wav_audio = pcm_to_wav_bytes(
+            resampled_audio = pcm_resample(
                 mono_audio,
-                sample_rate=DISCORD_PCM_SAMPLE_RATE,
+                from_rate=DISCORD_PCM_SAMPLE_RATE,
+                to_rate=NVIDIA_ASR_SAMPLE_RATE,
+                sample_width=DISCORD_PCM_SAMPLE_WIDTH,
+                channels=1,
+            )
+            wav_audio = pcm_to_wav_bytes(
+                resampled_audio,
+                sample_rate=NVIDIA_ASR_SAMPLE_RATE,
                 channels=1,
                 sample_width=DISCORD_PCM_SAMPLE_WIDTH,
             )

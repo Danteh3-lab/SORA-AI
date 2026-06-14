@@ -7,6 +7,7 @@ from sora_assistant.discord_bot import (
     build_discord_session_id,
     chunk_discord_message,
     normalize_channel_name,
+    pcm_resample,
     pcm_stereo_to_mono,
     pcm_to_wav_bytes,
     parse_csv_set,
@@ -88,6 +89,12 @@ class DiscordBotHelpersTests(unittest.TestCase):
         mono_pcm = pcm_stereo_to_mono(stereo_pcm)
 
         self.assertEqual(len(mono_pcm), len(stereo_pcm) // 2)
+
+    def test_pcm_resample_reduces_length_for_lower_sample_rate(self):
+        mono_pcm = b"\x01\x00" * 480
+        resampled = pcm_resample(mono_pcm, from_rate=48000, to_rate=16000)
+
+        self.assertLess(len(resampled), len(mono_pcm))
 
     def test_pcm_to_wav_bytes_wraps_raw_pcm_in_wav_container(self):
         wav_audio = pcm_to_wav_bytes(b"\x00\x00" * 100)
