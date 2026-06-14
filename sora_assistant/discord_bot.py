@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import tempfile
+import threading
 import wave
 from collections import defaultdict
 from dataclasses import dataclass
@@ -624,6 +625,23 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             super().__init__()
             self._buffers: dict[int, bytearray] = defaultdict(bytearray)
             self._silence_packets: dict[int, int] = defaultdict(int)
+            self._flush_timers: dict[int, threading.Timer] = {}
+
+        def _cancel_flush_timer(self, user_id: int) -> None:
+            timer = self._flush_timers.pop(user_id, None)
+            if timer is not None:
+                timer.cancel()
+
+        def _schedule_flush_timer(self, user_id: int) -> None:
+            self._cancel_flush_timer(user_id)
+
+            timer = threading.Timer(
+                VOICE_UTTERANCE_SILENCE_SECONDS,
+                lambda: self._dispatch_utterance(user_id),
+            )
+            timer.daemon = True
+            self._flush_timers[user_id] = timer
+            timer.start()
 
         def _resolve_user_id(self, *, user=None, packet=None, member=None, ssrc=None) -> int | None:
             if user is not None and getattr(user, "id", None) is not None:
@@ -644,6 +662,7 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             if user_id is None:
                 return
 
+            self._cancel_flush_timer(user_id)
             pcm_audio = bytes(self._buffers.pop(user_id, b""))
             self._silence_packets.pop(user_id, None)
             if not pcm_audio:
@@ -693,6 +712,7 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             self._silence_packets[user_id] = 0
             if data.pcm:
                 self._buffers[user_id].extend(data.pcm)
+                self._schedule_flush_timer(user_id)
 
         @voice_recv.AudioSink.listener()
         def on_voice_member_speaking_stop(self, member) -> None:
@@ -707,6 +727,8 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             self._dispatch_utterance(self._resolve_user_id(member=member, ssrc=ssrc))
 
         def cleanup(self) -> None:
+            for user_id in tuple(self._flush_timers.keys()):
+                self._cancel_flush_timer(user_id)
             self._buffers.clear()
             self._silence_packets.clear()
 
