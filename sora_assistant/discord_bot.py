@@ -50,6 +50,10 @@ class VoiceDebugState:
     current_channel: str = ""
     self_deaf: bool = False
     self_mute: bool = False
+    speaking_events: int = 0
+    mapped_ssrcs: int = 0
+    last_speaking_member: str = ""
+    last_speaking_state: str = ""
     last_pcm_bytes: int = 0
     last_transcript: str = ""
     last_error: str = ""
@@ -226,6 +230,7 @@ class DiscordBotRuntime:
         self._voice_reply_locks: dict[int, asyncio.Lock] = {}
         self._voice_sinks: dict[int, object] = {}
         self._voice_debug: dict[int, VoiceDebugState] = {}
+        self._voice_gateway_hooks_registered: set[int] = set()
         self._register_handlers()
 
     @classmethod
@@ -431,6 +436,10 @@ class DiscordBotRuntime:
                 f"channel={state.current_channel or '(none)'}",
                 f"self_deaf={state.self_deaf}",
                 f"self_mute={state.self_mute}",
+                f"speaking_events={state.speaking_events}",
+                f"mapped_ssrcs={state.mapped_ssrcs}",
+                f"last_speaking_member={state.last_speaking_member or '(none)'}",
+                f"last_speaking_state={state.last_speaking_state or '(none)'}",
                 f"utterances_seen={state.utterances_seen}",
                 f"flush_attempts={state.flush_attempts}",
                 f"packets_seen={state.packets_seen}",
@@ -505,6 +514,8 @@ class DiscordBotRuntime:
         debug.current_channel = getattr(getattr(bot_voice, "channel", None), "name", "") or ""
         debug.self_deaf = bool(getattr(bot_voice, "self_deaf", False)) if bot_voice is not None else False
         debug.self_mute = bool(getattr(bot_voice, "self_mute", False)) if bot_voice is not None else False
+        debug.mapped_ssrcs = len(getattr(voice_client, "_ssrc_to_id", {}))
+        self._ensure_voice_gateway_hooks(voice_client)
         return voice_client
 
     def _ensure_voice_listening(self, voice_client) -> None:
@@ -524,6 +535,42 @@ class DiscordBotRuntime:
         voice_client.listen(sink)
         self._voice_debug.setdefault(voice_client.guild.id, VoiceDebugState()).listening = True
         LOGGER.info("Discord voice listening armed for guild %s", voice_client.guild.id)
+
+    def _ensure_voice_gateway_hooks(self, voice_client) -> None:
+        guild_id = voice_client.guild.id
+        if guild_id in self._voice_gateway_hooks_registered:
+            return
+        if not hasattr(voice_client, "add_listener"):
+            return
+
+        async def on_voice_member_speaking_state(member, ssrc, state) -> None:
+            debug = self._voice_debug.setdefault(guild_id, VoiceDebugState())
+            debug.speaking_events += 1
+            debug.mapped_ssrcs = len(getattr(voice_client, "_ssrc_to_id", {}))
+            debug.last_speaking_member = getattr(member, "display_name", None) or getattr(member, "name", None) or str(member)
+            debug.last_speaking_state = f"{state} ssrc={ssrc}"
+            LOGGER.info(
+                "Discord voice speaking state for guild %s: member=%s ssrc=%s state=%s",
+                guild_id,
+                debug.last_speaking_member,
+                ssrc,
+                state,
+            )
+
+        async def on_voice_member_connect(member) -> None:
+            debug = self._voice_debug.setdefault(guild_id, VoiceDebugState())
+            debug.mapped_ssrcs = len(getattr(voice_client, "_ssrc_to_id", {}))
+            LOGGER.info("Discord voice member connect for guild %s: %s", guild_id, member)
+
+        async def on_voice_member_disconnect(member, ssrc) -> None:
+            debug = self._voice_debug.setdefault(guild_id, VoiceDebugState())
+            debug.mapped_ssrcs = len(getattr(voice_client, "_ssrc_to_id", {}))
+            LOGGER.info("Discord voice member disconnect for guild %s: %s ssrc=%s", guild_id, member, ssrc)
+
+        voice_client.add_listener(on_voice_member_speaking_state)
+        voice_client.add_listener(on_voice_member_connect)
+        voice_client.add_listener(on_voice_member_disconnect)
+        self._voice_gateway_hooks_registered.add(guild_id)
 
     async def _speak_text(self, voice_client: "discord.VoiceClient", text: str) -> None:
         if voice_client.is_playing():
