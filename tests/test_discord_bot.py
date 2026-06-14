@@ -7,6 +7,7 @@ from sora_assistant.discord_bot import (
     build_discord_session_id,
     chunk_discord_message,
     normalize_channel_name,
+    pcm_stereo_to_mono,
     pcm_to_wav_bytes,
     parse_csv_set,
     should_auto_reply_globally,
@@ -81,6 +82,12 @@ class DiscordBotHelpersTests(unittest.TestCase):
 
     def test_audio_suffix_for_mime_type_rejects_text(self):
         self.assertIsNone(audio_suffix_for_mime_type("text/plain"))
+
+    def test_pcm_stereo_to_mono_halves_frame_width(self):
+        stereo_pcm = b"\x01\x00\x03\x00" * 50
+        mono_pcm = pcm_stereo_to_mono(stereo_pcm)
+
+        self.assertEqual(len(mono_pcm), len(stereo_pcm) // 2)
 
     def test_pcm_to_wav_bytes_wraps_raw_pcm_in_wav_container(self):
         wav_audio = pcm_to_wav_bytes(b"\x00\x00" * 100)

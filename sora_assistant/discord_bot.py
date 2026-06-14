@@ -87,6 +87,19 @@ def audio_suffix_for_mime_type(mime_type: str | None) -> str | None:
     return DISCORD_AUDIO_SUFFIXES.get(normalized)
 
 
+def pcm_stereo_to_mono(
+    pcm_audio: bytes,
+    *,
+    sample_width: int = DISCORD_PCM_SAMPLE_WIDTH,
+) -> bytes:
+    try:
+        import audioop
+    except ImportError:
+        import audioop_lts as audioop
+
+    return audioop.tomono(pcm_audio, sample_width, 0.5, 0.5)
+
+
 def pcm_to_wav_bytes(
     pcm_audio: bytes,
     *,
@@ -467,7 +480,13 @@ class DiscordBotRuntime:
 
         lock = self._voice_reply_locks.setdefault(guild_id, asyncio.Lock())
         async with lock:
-            wav_audio = pcm_to_wav_bytes(pcm_audio)
+            mono_audio = pcm_stereo_to_mono(pcm_audio)
+            wav_audio = pcm_to_wav_bytes(
+                mono_audio,
+                sample_rate=DISCORD_PCM_SAMPLE_RATE,
+                channels=1,
+                sample_width=DISCORD_PCM_SAMPLE_WIDTH,
+            )
             try:
                 transcription = await asyncio.to_thread(
                     self.service.providers.stt.transcribe,
