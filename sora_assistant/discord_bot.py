@@ -7,6 +7,7 @@ import re
 import tempfile
 import wave
 from collections import defaultdict
+from dataclasses import dataclass
 from io import BytesIO
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,8 @@ DISCORD_PCM_CHANNELS = 2
 DISCORD_PCM_SAMPLE_WIDTH = 2
 NVIDIA_ASR_SAMPLE_RATE = 16000
 MINIMUM_UTTERANCE_BYTES = DISCORD_PCM_SAMPLE_RATE * DISCORD_PCM_CHANNELS * DISCORD_PCM_SAMPLE_WIDTH // 2
+VOICE_UTTERANCE_SILENCE_SECONDS = 0.8
+VOICE_UTTERANCE_SILENCE_PACKETS = int(VOICE_UTTERANCE_SILENCE_SECONDS / 0.02)
 DISCORD_AUDIO_SUFFIXES = {
     "audio/mpeg": ".mp3",
     "audio/mp3": ".mp3",
@@ -33,6 +36,16 @@ DISCORD_AUDIO_SUFFIXES = {
     "audio/ogg": ".ogg",
     "audio/opus": ".opus",
 }
+
+
+@dataclass
+class VoiceDebugState:
+    listening: bool = False
+    utterances_seen: int = 0
+    last_pcm_bytes: int = 0
+    last_transcript: str = ""
+    last_error: str = ""
+    last_reply_preview: str = ""
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -204,6 +217,7 @@ class DiscordBotRuntime:
         self._ready = asyncio.Event()
         self._voice_reply_locks: dict[int, asyncio.Lock] = {}
         self._voice_sinks: dict[int, object] = {}
+        self._voice_debug: dict[int, VoiceDebugState] = {}
         self._register_handlers()
 
     @classmethod
@@ -384,6 +398,22 @@ class DiscordBotRuntime:
             for chunk in chunks[1:]:
                 await interaction.followup.send(chunk)
 
+        @bot.tree.command(name="voicecheck", description="Show Discord voice pipeline status")
+        async def voicecheck(interaction: discord.Interaction) -> None:
+            if interaction.guild_id is None:
+                await interaction.response.send_message("This command only works inside a server.", ephemeral=True)
+                return
+            state = self._voice_debug.get(interaction.guild_id, VoiceDebugState())
+            details = [
+                f"listening={state.listening}",
+                f"utterances_seen={state.utterances_seen}",
+                f"last_pcm_bytes={state.last_pcm_bytes}",
+                f"last_transcript={state.last_transcript or '(none)'}",
+                f"last_reply={state.last_reply_preview or '(none)'}",
+                f"last_error={state.last_error or '(none)'}",
+            ]
+            await interaction.response.send_message("\n".join(details), ephemeral=True)
+
     async def _ask_service(
         self,
         prompt: str,
@@ -430,14 +460,22 @@ class DiscordBotRuntime:
         return voice_client
 
     def _ensure_voice_listening(self, voice_client) -> None:
+        try:
+            from discord.ext import voice_recv
+        except ImportError as exc:
+            raise RuntimeError("discord-ext-voice-recv is required for Discord voice conversations.") from exc
+
         if not hasattr(voice_client, "listen"):
             raise RuntimeError("This Discord voice client does not support voice receive.")
         if voice_client.is_listening():
+            self._voice_debug.setdefault(voice_client.guild.id, VoiceDebugState()).listening = True
             return
 
-        sink = build_voice_conversation_sink(self, voice_client.guild.id)
+        sink = voice_recv.SilenceGeneratorSink(build_voice_conversation_sink(self, voice_client.guild.id))
         self._voice_sinks[voice_client.guild.id] = sink
         voice_client.listen(sink)
+        self._voice_debug.setdefault(voice_client.guild.id, VoiceDebugState()).listening = True
+        LOGGER.info("Discord voice listening armed for guild %s", voice_client.guild.id)
 
     async def _speak_text(self, voice_client: "discord.VoiceClient", text: str) -> None:
         if voice_client.is_playing():
@@ -496,7 +534,14 @@ class DiscordBotRuntime:
         pcm_audio: bytes,
         voice_client,
     ) -> None:
+        debug = self._voice_debug.setdefault(guild_id, VoiceDebugState())
+        debug.utterances_seen += 1
+        debug.last_pcm_bytes = len(pcm_audio)
+        debug.last_error = ""
+        LOGGER.info("Discord voice utterance captured for guild %s with %s PCM bytes", guild_id, len(pcm_audio))
         if len(pcm_audio) < MINIMUM_UTTERANCE_BYTES:
+            debug.last_error = f"Utterance below threshold: {len(pcm_audio)} bytes"
+            LOGGER.info("Ignoring short Discord utterance for guild %s: %s bytes", guild_id, len(pcm_audio))
             return
 
         lock = self._voice_reply_locks.setdefault(guild_id, asyncio.Lock())
@@ -522,11 +567,15 @@ class DiscordBotRuntime:
                     "discord-voice.wav",
                 )
             except (RuntimeError, ValueError) as exc:
+                debug.last_error = str(exc)
                 LOGGER.warning("Discord voice transcription failed: %s", exc)
                 return
 
             prompt = transcription.text.strip()
+            debug.last_transcript = prompt
+            LOGGER.info("Discord voice transcript for guild %s: %s", guild_id, prompt)
             if not prompt:
+                debug.last_error = "Empty transcript returned by STT provider."
                 return
 
             reply = await self._ask_service(
@@ -535,9 +584,11 @@ class DiscordBotRuntime:
                 guild_id=guild_id,
                 channel_id=channel_id,
             )
+            debug.last_reply_preview = reply[:160]
             try:
                 await self._speak_text(voice_client, reply)
             except RuntimeError as exc:
+                debug.last_error = str(exc)
                 LOGGER.warning("Discord voice reply failed: %s", exc)
 
     async def start(self) -> None:
@@ -562,27 +613,17 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
     except ImportError as exc:
         raise RuntimeError("discord-ext-voice-recv is required for Discord voice conversations.") from exc
 
-    buffers: dict[int, bytearray] = defaultdict(bytearray)
     event_loop = runtime.bot.loop
 
     class Sink(voice_recv.AudioSink):
         def __init__(self) -> None:
             super().__init__()
+            self._buffers: dict[int, bytearray] = defaultdict(bytearray)
+            self._silence_packets: dict[int, int] = defaultdict(int)
 
-        def wants_opus(self) -> bool:
-            return False
-
-        def write(self, user, data) -> None:
-            if user is None or getattr(user, "bot", False):
-                return
-            if data.pcm:
-                buffers[user.id].extend(data.pcm)
-
-        @voice_recv.AudioSink.listener()
-        def on_voice_member_speaking_stop(self, member) -> None:
-            if getattr(member, "bot", False):
-                return
-            pcm_audio = bytes(buffers.pop(member.id, b""))
+        def _dispatch_utterance(self, member) -> None:
+            pcm_audio = bytes(self._buffers.pop(member.id, b""))
+            self._silence_packets.pop(member.id, None)
             if not pcm_audio:
                 return
 
@@ -602,7 +643,38 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
                 )
             )
 
+        def wants_opus(self) -> bool:
+            return False
+
+        def write(self, user, data) -> None:
+            if user is None or getattr(user, "bot", False):
+                return
+            if isinstance(data.packet, voice_recv.SilencePacket):
+                if not self._buffers.get(user.id):
+                    return
+                self._silence_packets[user.id] += 1
+                if self._silence_packets[user.id] >= VOICE_UTTERANCE_SILENCE_PACKETS:
+                    self._dispatch_utterance(user)
+                return
+
+            self._silence_packets[user.id] = 0
+            if data.pcm:
+                self._buffers[user.id].extend(data.pcm)
+
+        @voice_recv.AudioSink.listener()
+        def on_voice_member_speaking_stop(self, member) -> None:
+            if getattr(member, "bot", False):
+                return
+            self._dispatch_utterance(member)
+
+        @voice_recv.AudioSink.listener()
+        def on_voice_member_disconnect(self, member, ssrc) -> None:
+            if getattr(member, "bot", False):
+                return
+            self._dispatch_utterance(member)
+
         def cleanup(self) -> None:
-            buffers.clear()
+            self._buffers.clear()
+            self._silence_packets.clear()
 
     return Sink()
