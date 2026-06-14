@@ -58,6 +58,12 @@ def should_auto_reply_in_channel(
     return False
 
 
+def should_auto_reply_globally(value: str | None) -> bool:
+    if value is None:
+        return True
+    return _parse_bool(value)
+
+
 def chunk_discord_message(text: str, limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
     clean_text = (text or "").strip()
     if not clean_text:
@@ -95,6 +101,7 @@ class DiscordBotRuntime:
         token: str,
         guild_id: int | None = None,
         mention_replies_enabled: bool = True,
+        auto_reply_all_channels: bool = True,
         auto_reply_channel_ids: set[int] | None = None,
         auto_reply_channel_names: set[str] | None = None,
     ) -> None:
@@ -112,6 +119,7 @@ class DiscordBotRuntime:
         self.token = token
         self.guild_id = guild_id
         self.mention_replies_enabled = mention_replies_enabled
+        self.auto_reply_all_channels = auto_reply_all_channels
         self.auto_reply_channel_ids = auto_reply_channel_ids or set()
         self.auto_reply_channel_names = auto_reply_channel_names or set(DEFAULT_AUTO_REPLY_CHANNEL_NAMES)
         self._discord = discord
@@ -130,6 +138,7 @@ class DiscordBotRuntime:
         guild_raw = os.environ.get("DISCORD_GUILD_ID", "").strip()
         guild_id = int(guild_raw) if guild_raw.isdigit() else None
         mention_replies_enabled = _parse_bool(os.environ.get("SORA_DISCORD_MENTION_REPLIES"), default=True)
+        auto_reply_all_channels = should_auto_reply_globally(os.environ.get("SORA_DISCORD_AUTO_REPLY_ALL_CHANNELS"))
         auto_reply_channel_ids = {
             int(channel_id)
             for channel_id in parse_csv_set(os.environ.get("SORA_DISCORD_AUTO_REPLY_CHANNEL_IDS"))
@@ -144,6 +153,7 @@ class DiscordBotRuntime:
             token=token,
             guild_id=guild_id,
             mention_replies_enabled=mention_replies_enabled,
+            auto_reply_all_channels=auto_reply_all_channels,
             auto_reply_channel_ids=auto_reply_channel_ids,
             auto_reply_channel_names=auto_reply_channel_names,
         )
@@ -178,7 +188,7 @@ class DiscordBotRuntime:
                 return
 
             is_mentioned = bot.user in message.mentions
-            auto_reply_channel = should_auto_reply_in_channel(
+            auto_reply_channel = self.auto_reply_all_channels or should_auto_reply_in_channel(
                 channel_id=message.channel.id,
                 channel_name=getattr(message.channel, "name", None),
                 configured_channel_ids=self.auto_reply_channel_ids,

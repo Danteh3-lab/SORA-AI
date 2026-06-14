@@ -5,6 +5,7 @@ from sora_assistant.discord_bot import (
     chunk_discord_message,
     normalize_channel_name,
     parse_csv_set,
+    should_auto_reply_globally,
     should_auto_reply_in_channel,
 )
 
@@ -64,6 +65,12 @@ class DiscordBotHelpersTests(unittest.TestCase):
                 configured_channel_names={"danteh-chat"},
             )
         )
+
+    def test_global_auto_reply_defaults_to_enabled(self):
+        self.assertTrue(should_auto_reply_globally(None))
+
+    def test_global_auto_reply_can_be_disabled(self):
+        self.assertFalse(should_auto_reply_globally("false"))
 
 
 if __name__ == "__main__":
