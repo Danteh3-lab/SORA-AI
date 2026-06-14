@@ -44,6 +44,9 @@ class VoiceDebugState:
     utterances_seen: int = 0
     flush_attempts: int = 0
     packets_seen: int = 0
+    silence_packets: int = 0
+    pcm_packets: int = 0
+    empty_pcm_packets: int = 0
     unresolved_packets: int = 0
     buffered_pcm_bytes: int = 0
     connected: bool = False
@@ -443,6 +446,9 @@ class DiscordBotRuntime:
                 f"utterances_seen={state.utterances_seen}",
                 f"flush_attempts={state.flush_attempts}",
                 f"packets_seen={state.packets_seen}",
+                f"silence_packets={state.silence_packets}",
+                f"pcm_packets={state.pcm_packets}",
+                f"empty_pcm_packets={state.empty_pcm_packets}",
                 f"unresolved_packets={state.unresolved_packets}",
                 f"buffered_pcm_bytes={state.buffered_pcm_bytes}",
                 f"last_pcm_bytes={state.last_pcm_bytes}",
@@ -799,6 +805,7 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             if user is not None and getattr(user, "bot", False):
                 return
             if isinstance(data.packet, voice_recv.SilencePacket):
+                debug.silence_packets += 1
                 if not self._buffers.get(user_id):
                     return
                 self._silence_packets[user_id] += 1
@@ -808,9 +815,12 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
 
             self._silence_packets[user_id] = 0
             if data.pcm:
+                debug.pcm_packets += 1
                 self._buffers[user_id].extend(data.pcm)
                 self._update_buffer_debug()
                 self._schedule_flush_handle(user_id)
+            else:
+                debug.empty_pcm_packets += 1
 
         @voice_recv.AudioSink.listener()
         def on_voice_member_speaking_stop(self, member) -> None:
