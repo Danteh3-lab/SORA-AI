@@ -45,6 +45,10 @@ class VoiceDebugState:
     utterances_seen: int = 0
     packets_seen: int = 0
     unresolved_packets: int = 0
+    connected: bool = False
+    current_channel: str = ""
+    self_deaf: bool = False
+    self_mute: bool = False
     last_pcm_bytes: int = 0
     last_transcript: str = ""
     last_error: str = ""
@@ -407,8 +411,25 @@ class DiscordBotRuntime:
                 await interaction.response.send_message("This command only works inside a server.", ephemeral=True)
                 return
             state = self._voice_debug.get(interaction.guild_id, VoiceDebugState())
+            guild = interaction.guild
+            bot_member = guild.me if guild is not None else None
+            bot_voice = getattr(bot_member, "voice", None)
+            if bot_voice is not None:
+                state.connected = True
+                state.current_channel = getattr(getattr(bot_voice, "channel", None), "name", "") or "(unknown)"
+                state.self_deaf = bool(getattr(bot_voice, "self_deaf", False))
+                state.self_mute = bool(getattr(bot_voice, "self_mute", False))
+            else:
+                state.connected = False
+                state.current_channel = ""
+                state.self_deaf = False
+                state.self_mute = False
             details = [
                 f"listening={state.listening}",
+                f"connected={state.connected}",
+                f"channel={state.current_channel or '(none)'}",
+                f"self_deaf={state.self_deaf}",
+                f"self_mute={state.self_mute}",
                 f"utterances_seen={state.utterances_seen}",
                 f"packets_seen={state.packets_seen}",
                 f"unresolved_packets={state.unresolved_packets}",
@@ -453,15 +474,34 @@ class DiscordBotRuntime:
         voice_client = guild.voice_client
         try:
             if voice_client is None:
-                voice_client = await target_channel.connect(cls=voice_recv.VoiceRecvClient, timeout=20.0, reconnect=True)
+                voice_client = await target_channel.connect(
+                    cls=voice_recv.VoiceRecvClient,
+                    timeout=20.0,
+                    reconnect=True,
+                    self_deaf=False,
+                    self_mute=False,
+                )
             elif not hasattr(voice_client, "listen"):
                 await voice_client.disconnect()
-                voice_client = await target_channel.connect(cls=voice_recv.VoiceRecvClient, timeout=20.0, reconnect=True)
+                voice_client = await target_channel.connect(
+                    cls=voice_recv.VoiceRecvClient,
+                    timeout=20.0,
+                    reconnect=True,
+                    self_deaf=False,
+                    self_mute=False,
+                )
             elif voice_client.channel.id != target_channel.id:
                 await voice_client.move_to(target_channel)
+            await guild.change_voice_state(channel=target_channel, self_deaf=False, self_mute=False)
         except Exception as exc:
             raise RuntimeError(f"Discord voice connection failed: {exc}") from exc
 
+        debug = self._voice_debug.setdefault(guild.id, VoiceDebugState())
+        bot_voice = getattr(guild.me, "voice", None)
+        debug.connected = bot_voice is not None
+        debug.current_channel = getattr(getattr(bot_voice, "channel", None), "name", "") or ""
+        debug.self_deaf = bool(getattr(bot_voice, "self_deaf", False)) if bot_voice is not None else False
+        debug.self_mute = bool(getattr(bot_voice, "self_mute", False)) if bot_voice is not None else False
         return voice_client
 
     def _ensure_voice_listening(self, voice_client) -> None:
