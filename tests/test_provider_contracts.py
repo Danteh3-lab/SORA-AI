@@ -15,6 +15,7 @@ from sora_assistant.providers.fake import (
 )
 from sora_assistant.providers.nvidia_nim_provider import NvidiaNimLLMProvider
 from sora_assistant.providers.nvidia_speech_provider import NvidiaSpeechToTextProvider
+from sora_assistant.providers.nvidia_tts_provider import NvidiaTextToSpeechProvider
 from sora_assistant.providers.registry import build_provider_bundle
 
 
@@ -116,6 +117,36 @@ class ProviderContractTests(unittest.TestCase):
         self.assertEqual(captured["sample_rate"], 16000)
         self.assertEqual(captured["audio"], b"\x00\x00" * 160)
 
+    def test_nvidia_tts_maps_pcm_audio_to_wav_result(self):
+        class Service:
+            def synthesize(self, **kwargs):
+                self.kwargs = kwargs
+                return SimpleNamespace(audio=b"\x00\x00" * 220)
+
+        service = Service()
+        config = self._config(
+            tts_provider="nvidia_nim",
+            tts_model="magpie-tts-multilingual",
+            tts_voice="Magpie-Multilingual.EN-US.Aria",
+        )
+        response = NvidiaTextToSpeechProvider(config, service=service).speak("At your service.")
+
+        self.assertEqual(response.provider, "nvidia_nim")
+        self.assertEqual(response.mime_type, "audio/wav")
+        self.assertEqual(response.raw["voice"], "Magpie-Multilingual.EN-US.Aria")
+        self.assertEqual(service.kwargs["voice_name"], "Magpie-Multilingual.EN-US.Aria")
+        with wave.open(BytesIO(response.audio), "rb") as wav_file:
+            self.assertEqual(wav_file.getnchannels(), 1)
+            self.assertEqual(wav_file.getframerate(), 22050)
+
+    def test_nvidia_tts_rejects_unsupported_model(self):
+        config = self._config(tts_provider="nvidia_nim", tts_model="chatterbox-multilingual-tts")
+        provider = NvidiaTextToSpeechProvider(config)
+
+        with patch("sora_assistant.providers.nvidia_tts_provider.ApiKeyStore.get_api_key", return_value="nvapi-test"):
+            with self.assertRaisesRegex(RuntimeError, "magpie-tts-multilingual"):
+                provider._build_service()
+
     def test_registry_builds_capability_specific_bundle(self):
         config = self._config(llm_provider="fake", stt_provider="fake", tts_provider="fake")
         bundle = build_provider_bundle(config)
@@ -135,6 +166,17 @@ class ProviderContractTests(unittest.TestCase):
         self.assertIsInstance(bundle.llm, NvidiaNimLLMProvider)
         self.assertIsInstance(bundle.stt, NvidiaSpeechToTextProvider)
         self.assertIsInstance(bundle.tts, BrowserTextToSpeechProvider)
+
+    def test_registry_builds_nvidia_magpie_tts(self):
+        config = self._config(
+            llm_provider="fake",
+            stt_provider="fake",
+            tts_provider="nvidia_nim",
+            tts_model="magpie-tts-multilingual",
+        )
+        bundle = build_provider_bundle(config)
+
+        self.assertIsInstance(bundle.tts, NvidiaTextToSpeechProvider)
 
     @staticmethod
     def _config(**overrides):

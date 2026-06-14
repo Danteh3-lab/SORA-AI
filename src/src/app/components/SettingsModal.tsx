@@ -161,6 +161,14 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
       if (key === "stt_provider" && value === "nvidia_nim") {
         return { ...current, stt_provider: value, stt_model: "nvidia/nemotron-asr-streaming" };
       }
+      if (key === "tts_provider" && value === "nvidia_nim") {
+        return {
+          ...current,
+          tts_provider: value,
+          tts_model: "magpie-tts-multilingual",
+          tts_voice: "Magpie-Multilingual.EN-US.Aria",
+        };
+      }
       if (key === "tts_provider" && value === "browser") {
         return { ...current, tts_provider: value, tts_model: "browser-speech" };
       }
@@ -289,6 +297,7 @@ export function SettingsModal({ apiBaseUrl, open, onOpenChange, onSaved }: Setti
                       >
                         <option value="fake">Fake / local test</option>
                         <option value="openai">OpenAI</option>
+                        <option value="nvidia_nim">NVIDIA Magpie TTS</option>
                         <option value="browser">Browser voice</option>
                       </select>
                     </Field>

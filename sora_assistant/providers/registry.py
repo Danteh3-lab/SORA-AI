@@ -93,9 +93,13 @@ def _tts_factory(name: str) -> TTSFactory:
         from sora_assistant.providers.openai_provider import OpenAITextToSpeechProvider
 
         return OpenAITextToSpeechProvider
+    if name == "nvidia_nim":
+        from sora_assistant.providers.nvidia_tts_provider import NvidiaTextToSpeechProvider
+
+        return NvidiaTextToSpeechProvider
     if name == "browser":
         return lambda config: BrowserTextToSpeechProvider(model=config.tts_model)
-    raise ValueError(f"Unknown TTS provider '{name}'. Available providers: browser, fake, openai")
+    raise ValueError(f"Unknown TTS provider '{name}'. Available providers: browser, fake, nvidia_nim, openai")
 
 
 def default_registry() -> ProviderRegistry:

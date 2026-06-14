@@ -9,6 +9,8 @@ from typing import Any
 APP_NAME = "sora-personal-assistant"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+DEFAULT_NVIDIA_TTS_MODEL = "magpie-tts-multilingual"
+DEFAULT_NVIDIA_TTS_VOICE = "Magpie-Multilingual.EN-US.Aria"
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -95,6 +97,7 @@ class AssistantConfig:
         _load_env_file(Path(env_file))
         provider = os.environ.get("SORA_PROVIDER", "fake").strip().lower()
         llm_provider = os.environ.get("SORA_LLM_PROVIDER", provider).strip().lower()
+        tts_provider = os.environ.get("SORA_TTS_PROVIDER", provider).strip().lower()
         return cls(
             provider=provider,
             data_dir=default_data_dir(),
@@ -103,14 +106,20 @@ class AssistantConfig:
                 DEFAULT_NVIDIA_MODEL if llm_provider == "nvidia_nim" else "gpt-4o-mini",
             ),
             stt_model=os.environ.get("SORA_STT_MODEL", "gpt-4o-mini-transcribe"),
-            tts_model=os.environ.get("SORA_TTS_MODEL", "gpt-4o-mini-tts"),
-            tts_voice=os.environ.get("SORA_TTS_VOICE", "alloy"),
+            tts_model=os.environ.get(
+                "SORA_TTS_MODEL",
+                DEFAULT_NVIDIA_TTS_MODEL if tts_provider == "nvidia_nim" else "gpt-4o-mini-tts",
+            ),
+            tts_voice=os.environ.get(
+                "SORA_TTS_VOICE",
+                DEFAULT_NVIDIA_TTS_VOICE if tts_provider == "nvidia_nim" else "alloy",
+            ),
             wake_word_enabled=_parse_bool(os.environ.get("SORA_WAKE_WORD_ENABLED")),
             wake_word=os.environ.get("SORA_WAKE_WORD", "jarvis"),
             openai_base_url=os.environ.get("OPENAI_BASE_URL") or None,
             llm_provider=llm_provider,
             stt_provider=os.environ.get("SORA_STT_PROVIDER", provider).strip().lower(),
-            tts_provider=os.environ.get("SORA_TTS_PROVIDER", provider).strip().lower(),
+            tts_provider=tts_provider,
             nvidia_base_url=os.environ.get("NVIDIA_BASE_URL", DEFAULT_NVIDIA_BASE_URL),
             instructions_file=os.environ.get("SORA_INSTRUCTIONS_FILE", "guidelines/jarvis.md"),
         )

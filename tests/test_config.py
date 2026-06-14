@@ -77,6 +77,21 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded.nvidia_base_url, "http://localhost:9000/v1")
         self.assertEqual(loaded.instructions_file, "guidelines/custom-jarvis.md")
 
+    def test_nvidia_tts_defaults_when_selected(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SORA_PROVIDER": "fake",
+                "SORA_TTS_PROVIDER": "nvidia_nim",
+                "SORA_DATA_DIR": ".",
+            },
+            clear=True,
+        ):
+            config = AssistantConfig.load(Path("missing.env"))
+
+        self.assertEqual(config.tts_model, "magpie-tts-multilingual")
+        self.assertEqual(config.tts_voice, "Magpie-Multilingual.EN-US.Aria")
+
 
 if __name__ == "__main__":
     unittest.main()
