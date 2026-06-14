@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sora_assistant.assistant_core.service import AssistantService
 from sora_assistant.config import ApiKeyStore, AssistantConfig
+from sora_assistant.discord_bot import DiscordBotRuntime
 from sora_assistant.models import AssistantTurn
 from sora_assistant.models import to_jsonable
 from sora_assistant.providers.registry import build_provider_bundle
@@ -71,6 +73,7 @@ def create_app(service: AssistantService):
     )
     settings_password = os.environ.get("SORA_SETTINGS_PASSWORD", "").strip()
     settings_unlock_enabled = settings_writes_enabled or bool(settings_password)
+    discord_runtime = DiscordBotRuntime.from_env(service)
 
     def settings_payload() -> dict[str, Any]:
         return {
@@ -79,9 +82,20 @@ def create_app(service: AssistantService):
             "has_nvidia_api_key": bool(key_store.get_api_key("nvidia")),
             "settings_writes_enabled": settings_unlock_enabled,
             "settings_password_required": bool(settings_password),
+            "discord_bot_enabled": discord_runtime is not None,
         }
 
-    app = FastAPI(title="Sora Personal Assistant API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if discord_runtime is not None:
+            await discord_runtime.start()
+        try:
+            yield
+        finally:
+            if discord_runtime is not None:
+                await discord_runtime.close()
+
+    app = FastAPI(title="Sora Personal Assistant API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
@@ -90,6 +104,7 @@ def create_app(service: AssistantService):
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.state.discord_runtime = discord_runtime
 
     @app.get("/health")
     def health() -> dict[str, Any]:
