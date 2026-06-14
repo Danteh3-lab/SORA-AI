@@ -42,6 +42,8 @@ DISCORD_AUDIO_SUFFIXES = {
 class VoiceDebugState:
     listening: bool = False
     utterances_seen: int = 0
+    packets_seen: int = 0
+    unresolved_packets: int = 0
     last_pcm_bytes: int = 0
     last_transcript: str = ""
     last_error: str = ""
@@ -407,6 +409,8 @@ class DiscordBotRuntime:
             details = [
                 f"listening={state.listening}",
                 f"utterances_seen={state.utterances_seen}",
+                f"packets_seen={state.packets_seen}",
+                f"unresolved_packets={state.unresolved_packets}",
                 f"last_pcm_bytes={state.last_pcm_bytes}",
                 f"last_transcript={state.last_transcript or '(none)'}",
                 f"last_reply={state.last_reply_preview or '(none)'}",
@@ -621,9 +625,27 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             self._buffers: dict[int, bytearray] = defaultdict(bytearray)
             self._silence_packets: dict[int, int] = defaultdict(int)
 
-        def _dispatch_utterance(self, member) -> None:
-            pcm_audio = bytes(self._buffers.pop(member.id, b""))
-            self._silence_packets.pop(member.id, None)
+        def _resolve_user_id(self, *, user=None, packet=None, member=None, ssrc=None) -> int | None:
+            if user is not None and getattr(user, "id", None) is not None:
+                return user.id
+            if member is not None and getattr(member, "id", None) is not None:
+                return member.id
+            voice_client = self.voice_client
+            if voice_client is None:
+                return None
+            resolved_ssrc = ssrc
+            if resolved_ssrc is None and packet is not None:
+                resolved_ssrc = getattr(packet, "ssrc", None)
+            if resolved_ssrc is None:
+                return None
+            return voice_client._get_id_from_ssrc(resolved_ssrc)
+
+        def _dispatch_utterance(self, user_id: int | None) -> None:
+            if user_id is None:
+                return
+
+            pcm_audio = bytes(self._buffers.pop(user_id, b""))
+            self._silence_packets.pop(user_id, None)
             if not pcm_audio:
                 return
 
@@ -636,7 +658,7 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
                     runtime._handle_voice_utterance(
                         guild_id=guild_id,
                         channel_id=voice_client.channel.id,
-                        user_id=member.id,
+                        user_id=user_id,
                         pcm_audio=pcm_audio,
                         voice_client=voice_client,
                     )
@@ -647,31 +669,42 @@ def build_voice_conversation_sink(runtime: DiscordBotRuntime, guild_id: int):
             return False
 
         def write(self, user, data) -> None:
-            if user is None or getattr(user, "bot", False):
+            voice_client = self.voice_client
+            if voice_client is None:
+                return
+            user_id = self._resolve_user_id(user=user, packet=data.packet)
+            if user_id == voice_client.guild.me.id:
+                return
+            debug = runtime._voice_debug.setdefault(guild_id, VoiceDebugState())
+            debug.packets_seen += 1
+            if user_id is None:
+                debug.unresolved_packets += 1
+                return
+            if user is not None and getattr(user, "bot", False):
                 return
             if isinstance(data.packet, voice_recv.SilencePacket):
-                if not self._buffers.get(user.id):
+                if not self._buffers.get(user_id):
                     return
-                self._silence_packets[user.id] += 1
-                if self._silence_packets[user.id] >= VOICE_UTTERANCE_SILENCE_PACKETS:
-                    self._dispatch_utterance(user)
+                self._silence_packets[user_id] += 1
+                if self._silence_packets[user_id] >= VOICE_UTTERANCE_SILENCE_PACKETS:
+                    self._dispatch_utterance(user_id)
                 return
 
-            self._silence_packets[user.id] = 0
+            self._silence_packets[user_id] = 0
             if data.pcm:
-                self._buffers[user.id].extend(data.pcm)
+                self._buffers[user_id].extend(data.pcm)
 
         @voice_recv.AudioSink.listener()
         def on_voice_member_speaking_stop(self, member) -> None:
             if getattr(member, "bot", False):
                 return
-            self._dispatch_utterance(member)
+            self._dispatch_utterance(self._resolve_user_id(member=member))
 
         @voice_recv.AudioSink.listener()
         def on_voice_member_disconnect(self, member, ssrc) -> None:
             if getattr(member, "bot", False):
                 return
-            self._dispatch_utterance(member)
+            self._dispatch_utterance(self._resolve_user_id(member=member, ssrc=ssrc))
 
         def cleanup(self) -> None:
             self._buffers.clear()
