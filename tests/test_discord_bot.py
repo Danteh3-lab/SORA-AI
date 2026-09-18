@@ -12,6 +12,7 @@ from sora_assistant.discord_bot import (
     pcm_stereo_to_mono,
     pcm_to_wav_bytes,
     parse_csv_set,
+    parse_conversation_timeout_seconds,
     should_auto_reply_globally,
     should_auto_reply_in_channel,
     strip_name_trigger,
@@ -92,6 +93,12 @@ class DiscordBotHelpersTests(unittest.TestCase):
 
     def test_global_auto_reply_can_be_disabled(self):
         self.assertFalse(should_auto_reply_globally("false"))
+
+    def test_conversation_timeout_defaults_and_clamps_invalid_values(self):
+        self.assertEqual(parse_conversation_timeout_seconds(None), 300.0)
+        self.assertEqual(parse_conversation_timeout_seconds("600"), 600.0)
+        self.assertEqual(parse_conversation_timeout_seconds("-1"), 0.0)
+        self.assertEqual(parse_conversation_timeout_seconds("not-a-number"), 300.0)
 
     def test_audio_suffix_for_mime_type_maps_mp3(self):
         self.assertEqual(audio_suffix_for_mime_type("audio/mpeg"), ".mp3")
