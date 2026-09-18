@@ -37,7 +37,7 @@ class DiscordBotHelpersTests(unittest.TestCase):
         self.assertEqual(" ".join(chunk.strip() for chunk in chunks).replace("  ", " ").strip(), text.strip())
 
     def test_chunk_discord_message_returns_default_for_blank_text(self):
-        self.assertEqual(chunk_discord_message("   "), ["I am here, sir."])
+        self.assertEqual(chunk_discord_message("   "), ["I'm here 😊"])
 
     def test_parse_csv_set_ignores_empty_values(self):
         self.assertEqual(parse_csv_set(" danteh-chat, ,alerts "), {"danteh-chat", "alerts"})

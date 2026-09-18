@@ -222,7 +222,7 @@ def pcm_to_wav_bytes(
 def chunk_discord_message(text: str, limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
     clean_text = (text or "").strip()
     if not clean_text:
-        return ["I am here, sir."]
+        return ["I'm here 😊"]
     if len(clean_text) <= limit:
         return [clean_text]
 
@@ -408,7 +408,7 @@ class DiscordBotRuntime:
             if not prompt:
                 if auto_reply_channel and not is_name_called and not is_mentioned:
                     return
-                await message.reply("I am listening, sir. What can I do?", mention_author=False)
+                await message.reply("I'm here 😊 What are we getting into?", mention_author=False)
                 return
 
             async with message.channel.typing():
@@ -444,7 +444,7 @@ class DiscordBotRuntime:
 
         @bot.tree.command(name="ping", description="Check whether DANTEH is online")
         async def ping(interaction: discord.Interaction) -> None:
-            await interaction.response.send_message("Online and ready, sir.")
+            await interaction.response.send_message("Online and ready ✨")
 
         @bot.tree.command(name="join", description="Join your current voice channel")
         async def join(interaction: discord.Interaction) -> None:
@@ -455,7 +455,7 @@ class DiscordBotRuntime:
             except RuntimeError as exc:
                 await interaction.followup.send(str(exc))
                 return
-            await interaction.followup.send(f"Joined **{voice_client.channel.name}**, sir.")
+            await interaction.followup.send(f"Joined **{voice_client.channel.name}** 🎧")
 
         @bot.tree.command(name="leave", description="Leave the current voice channel")
         async def leave(interaction: discord.Interaction) -> None:
@@ -466,12 +466,12 @@ class DiscordBotRuntime:
 
             voice_client = guild.voice_client
             if voice_client is None:
-                await interaction.response.send_message("I am not in a voice channel right now, sir.")
+                await interaction.response.send_message("I'm not in a voice channel right now.")
                 return
 
             channel_name = getattr(voice_client.channel, "name", "voice")
             await voice_client.disconnect()
-            await interaction.response.send_message(f"Left **{channel_name}**, sir.")
+            await interaction.response.send_message(f"Left **{channel_name}**.")
 
         @bot.tree.command(name="say", description="Speak a line in your current voice channel")
         @app_commands.describe(text="What DANTEH should say aloud")
@@ -484,7 +484,7 @@ class DiscordBotRuntime:
             except RuntimeError as exc:
                 await interaction.followup.send(str(exc))
                 return
-            await interaction.followup.send(f"Speaking in **{voice_client.channel.name}**, sir.")
+            await interaction.followup.send(f"Speaking in **{voice_client.channel.name}** 🔊")
 
         @bot.tree.command(name="voiceask", description="Ask DANTEH and hear the reply in voice")
         @app_commands.describe(prompt="What you want DANTEH to answer out loud")
@@ -567,7 +567,7 @@ class DiscordBotRuntime:
         except (RuntimeError, ValueError) as exc:
             LOGGER.exception("Discord assistant request failed")
             return f"Backend request failed: {exc}"
-        return turn.assistant_text.strip() or "I am here, sir."
+        return turn.assistant_text.strip() or "I'm here 😊"
 
     async def _join_user_voice_channel(self, interaction) -> "discord.VoiceClient":
         try:
@@ -577,12 +577,12 @@ class DiscordBotRuntime:
 
         guild = interaction.guild
         if guild is None:
-            raise RuntimeError("Voice commands only work inside a server, sir.")
+            raise RuntimeError("Voice commands only work inside a server.")
 
         member_voice = getattr(interaction.user, "voice", None)
         target_channel = getattr(member_voice, "channel", None)
         if target_channel is None:
-            raise RuntimeError("Join a voice channel first, sir.")
+            raise RuntimeError("Join a voice channel first.")
 
         voice_client = guild.voice_client
         try:
@@ -675,7 +675,7 @@ class DiscordBotRuntime:
 
     async def _speak_text(self, voice_client: "discord.VoiceClient", text: str) -> None:
         if voice_client.is_playing():
-            raise RuntimeError("I am already speaking in voice, sir.")
+            raise RuntimeError("I'm already speaking in voice.")
 
         try:
             audio_result = await asyncio.to_thread(self.service.providers.tts.speak, text)
