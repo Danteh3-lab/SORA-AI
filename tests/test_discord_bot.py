@@ -74,17 +74,18 @@ class DiscordBotHelpersTests(unittest.TestCase):
             )
         )
 
-    def test_name_trigger_matches_leading_name_case_insensitively(self):
+    def test_name_trigger_matches_name_anywhere_case_insensitively(self):
         self.assertTrue(is_name_triggered("Danteh, are you there?"))
         self.assertTrue(is_name_triggered("hey DANTEH can you help?"))
+        self.assertTrue(is_name_triggered("How are you, danteh?"))
 
     def test_name_trigger_does_not_match_name_inside_another_word_or_sentence(self):
-        self.assertFalse(is_name_triggered("I like danteh"))
         self.assertFalse(is_name_triggered("dantehbot, respond"))
 
     def test_strip_name_trigger_preserves_request(self):
         self.assertEqual(strip_name_trigger("Hey Danteh, what time is it?"), "what time is it?")
         self.assertEqual(strip_name_trigger("DANTEH help me"), "help me")
+        self.assertEqual(strip_name_trigger("How are you, danteh?"), "How are you?")
 
     def test_global_auto_reply_defaults_to_enabled(self):
         self.assertTrue(should_auto_reply_globally(None))

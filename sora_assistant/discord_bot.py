@@ -110,22 +110,42 @@ def should_auto_reply_globally(value: str | None) -> bool:
 
 
 def is_name_triggered(text: str, name: str = "danteh") -> bool:
-    """Return whether a message starts by addressing the bot by name."""
+    """Return whether a message addresses the bot by name anywhere in the text."""
     clean_name = (name or "").strip()
     if not clean_name:
         return False
-    pattern = rf"^\s*(?:(?:hey|hi|yo)\s+)?{re.escape(clean_name)}(?=\b)"
-    return re.match(pattern, text or "", flags=re.IGNORECASE) is not None
+    pattern = rf"(?<!\w){re.escape(clean_name)}(?!\w)"
+    return re.search(pattern, text or "", flags=re.IGNORECASE) is not None
 
 
 def strip_name_trigger(text: str, name: str = "danteh") -> str:
-    """Remove a leading bot-name invocation while preserving the actual request."""
+    """Remove one bot-name invocation while preserving the actual request."""
     clean_name = (name or "").strip()
     if not clean_name:
         return (text or "").strip()
-    pattern = rf"^\s*(?:(?:hey|hi|yo)\s+)?{re.escape(clean_name)}(?=\b)"
-    without_name = re.sub(pattern, "", text or "", count=1, flags=re.IGNORECASE)
-    return re.sub(r"^[\s,:;.!?\-]+", "", without_name).strip()
+
+    original = text or ""
+    # Preserve the old friendly forms ("Hey Danteh, ...") when the
+    # invocation is at the beginning of the message.
+    leading_pattern = rf"^\s*(?:(?:hey|hi|yo)\s+)?{re.escape(clean_name)}(?!\w)[\s,;:!?\-]*"
+    leading_match = re.match(leading_pattern, original, flags=re.IGNORECASE)
+    if leading_match:
+        return original[leading_match.end() :].strip()
+
+    name_pattern = rf"(?<!\w){re.escape(clean_name)}(?!\w)"
+    name_match = re.search(name_pattern, original, flags=re.IGNORECASE)
+    if not name_match:
+        return original.strip()
+
+    before = re.sub(r"[\s,;:!\-]+$", "", original[: name_match.start()])
+    after = re.sub(r"^[\s,;:!\-]+", "", original[name_match.end() :])
+    if not before:
+        return after.strip()
+    if not after:
+        return before.strip()
+    # Attach sentence-ending punctuation directly to the preceding word.
+    separator = "" if after[0] in "?." else " "
+    return f"{before}{separator}{after}".strip()
 
 
 def audio_suffix_for_mime_type(mime_type: str | None) -> str | None:
