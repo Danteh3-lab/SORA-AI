@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 DISCORD_MESSAGE_LIMIT = 1900
-DEFAULT_AUTO_REPLY_CHANNEL_NAMES = frozenset({"danteh", "danteh-chat"})
+DEFAULT_AUTO_REPLY_CHANNEL_NAMES = frozenset({"aria", "aria-chat", "danteh", "danteh-chat"})
 DEFAULT_CONVERSATION_TIMEOUT_SECONDS = 300.0
 DISCORD_PCM_SAMPLE_RATE = 48000
 DISCORD_PCM_CHANNELS = 2
@@ -124,7 +124,7 @@ def parse_conversation_timeout_seconds(
         return default
 
 
-def is_name_triggered(text: str, name: str = "danteh") -> bool:
+def is_name_triggered(text: str, name: str = "aria") -> bool:
     """Return whether a message addresses the bot by name anywhere in the text."""
     clean_name = (name or "").strip()
     if not clean_name:
@@ -133,14 +133,14 @@ def is_name_triggered(text: str, name: str = "danteh") -> bool:
     return re.search(pattern, text or "", flags=re.IGNORECASE) is not None
 
 
-def strip_name_trigger(text: str, name: str = "danteh") -> str:
+def strip_name_trigger(text: str, name: str = "aria") -> str:
     """Remove one bot-name invocation while preserving the actual request."""
     clean_name = (name or "").strip()
     if not clean_name:
         return (text or "").strip()
 
     original = text or ""
-    # Preserve the old friendly forms ("Hey Danteh, ...") when the
+    # Preserve the old friendly forms ("Hey Aria, ...") when the
     # invocation is at the beginning of the message.
     leading_pattern = rf"^\s*(?:(?:hey|hi|yo)\s+)?{re.escape(clean_name)}(?!\w)[\s,;:!?\-]*"
     leading_match = re.match(leading_pattern, original, flags=re.IGNORECASE)
@@ -259,7 +259,7 @@ class DiscordBotRuntime:
         auto_reply_all_channels: bool = True,
         auto_reply_channel_ids: set[int] | None = None,
         auto_reply_channel_names: set[str] | None = None,
-        name_trigger: str = "danteh",
+        name_trigger: str = "aria",
         conversation_timeout_seconds: float = DEFAULT_CONVERSATION_TIMEOUT_SECONDS,
         ffmpeg_path: str = "ffmpeg",
     ) -> None:
@@ -280,7 +280,7 @@ class DiscordBotRuntime:
         self.auto_reply_all_channels = auto_reply_all_channels
         self.auto_reply_channel_ids = auto_reply_channel_ids or set()
         self.auto_reply_channel_names = auto_reply_channel_names or set(DEFAULT_AUTO_REPLY_CHANNEL_NAMES)
-        self.name_trigger = name_trigger.strip() or "danteh"
+        self.name_trigger = name_trigger.strip() or "aria"
         self.conversation_timeout_seconds = max(0.0, conversation_timeout_seconds)
         self.ffmpeg_path = ffmpeg_path
         self._discord = discord
@@ -314,7 +314,7 @@ class DiscordBotRuntime:
             normalize_channel_name(name)
             for name in parse_csv_set(os.environ.get("SORA_DISCORD_AUTO_REPLY_CHANNEL_NAMES"))
         }
-        name_trigger = os.environ.get("SORA_DISCORD_NAME_TRIGGER", "danteh").strip() or "danteh"
+        name_trigger = os.environ.get("SORA_DISCORD_NAME_TRIGGER", "aria").strip() or "aria"
         conversation_timeout_seconds = parse_conversation_timeout_seconds(
             os.environ.get("SORA_DISCORD_CONVERSATION_TIMEOUT_SECONDS")
         )
@@ -427,8 +427,8 @@ class DiscordBotRuntime:
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
-        @bot.tree.command(name="ask", description="Ask DANTEH for help")
-        @app_commands.describe(prompt="What you want DANTEH to handle")
+        @bot.tree.command(name="ask", description="Ask Aria for help")
+        @app_commands.describe(prompt="What you want Aria to handle")
         async def ask(interaction: discord.Interaction, prompt: str) -> None:
             await interaction.response.defer(thinking=True)
             reply = await self._ask_service(
@@ -442,7 +442,7 @@ class DiscordBotRuntime:
             for chunk in chunks[1:]:
                 await interaction.followup.send(chunk)
 
-        @bot.tree.command(name="ping", description="Check whether DANTEH is online")
+        @bot.tree.command(name="ping", description="Check whether Aria is online")
         async def ping(interaction: discord.Interaction) -> None:
             await interaction.response.send_message("Online and ready ✨")
 
@@ -474,7 +474,7 @@ class DiscordBotRuntime:
             await interaction.response.send_message(f"Left **{channel_name}**.")
 
         @bot.tree.command(name="say", description="Speak a line in your current voice channel")
-        @app_commands.describe(text="What DANTEH should say aloud")
+        @app_commands.describe(text="What Aria should say aloud")
         async def say(interaction: discord.Interaction, text: str) -> None:
             await interaction.response.defer(thinking=True)
             try:
@@ -486,8 +486,8 @@ class DiscordBotRuntime:
                 return
             await interaction.followup.send(f"Speaking in **{voice_client.channel.name}** 🔊")
 
-        @bot.tree.command(name="voiceask", description="Ask DANTEH and hear the reply in voice")
-        @app_commands.describe(prompt="What you want DANTEH to answer out loud")
+        @bot.tree.command(name="voiceask", description="Ask Aria and hear the reply in voice")
+        @app_commands.describe(prompt="What you want Aria to answer out loud")
         async def voiceask(interaction: discord.Interaction, prompt: str) -> None:
             await interaction.response.defer(thinking=True)
             try:

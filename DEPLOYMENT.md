@@ -1,4 +1,4 @@
-# Deploy DANTEH
+# Deploy Aria
 
 ## Railway backend
 
@@ -16,13 +16,14 @@ SORA_LLM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 SORA_STT_MODEL=nvidia/nemotron-asr-streaming
 SORA_TTS_MODEL=browser-speech
 SORA_TTS_VOICE=default
+SORA_DISCORD_NAME_TRIGGER=aria
 SORA_INSTRUCTIONS_FILE=guidelines/jarvis.md
 SORA_ALLOWED_ORIGINS=https://s0ra.netlify.app
 SORA_ALLOW_SETTINGS_WRITE=false
 SORA_SETTINGS_PASSWORD=choose-a-private-admin-password
 ```
 
-Railway supplies `PORT` automatically. When a volume is attached, DANTEH automatically
+Railway supplies `PORT` automatically. When a volume is attached, Aria automatically
 uses `RAILWAY_VOLUME_MOUNT_PATH` for its SQLite memory database.
 
 ## Netlify frontend
