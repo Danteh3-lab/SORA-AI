@@ -19,6 +19,16 @@ def _client():
 
 
 def _base_payload(model: str) -> dict[str, Any]:
+    if model.strip().lower() == "moonshotai/kimi-k3":
+        return {
+            "model": model,
+            "max_tokens": 16384,
+            "temperature": 1.0,
+            "seed": 0,
+            "reasoning_effort": "max",
+            "stream": False,
+        }
+
     return {
         "model": model,
         "max_tokens": 2048,

@@ -84,6 +84,30 @@ class ProviderContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "NVIDIA NIM request failed"):
             NvidiaNimLLMProvider(config, client=client).generate([Message(role="user", content="ping")])
 
+    def test_nvidia_nim_kimi_k3_uses_supported_reasoning_payload(self):
+        captured = {}
+
+        class Completions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="Kimi response"))],
+                    model="moonshotai/kimi-k3",
+                )
+
+        client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+        config = self._config(llm_provider="nvidia_nim", llm_model="moonshotai/kimi-k3")
+        response = NvidiaNimLLMProvider(config, client=client).generate(
+            [Message(role="user", content="ping")]
+        )
+
+        self.assertEqual(response.text, "Kimi response")
+        self.assertEqual(captured["reasoning_effort"], "max")
+        self.assertEqual(captured["max_tokens"], 16384)
+        self.assertEqual(captured["temperature"], 1.0)
+        self.assertEqual(captured["seed"], 0)
+        self.assertNotIn("extra_body", captured)
+
     def test_nvidia_speech_maps_riva_transcript(self):
         captured = {}
 

@@ -6,6 +6,7 @@ from sora_assistant.discord_bot import (
     audio_suffix_for_mime_type,
     build_discord_session_id,
     chunk_discord_message,
+    is_name_triggered,
     normalize_channel_name,
     pcm_resample,
     pcm_stereo_to_mono,
@@ -13,6 +14,7 @@ from sora_assistant.discord_bot import (
     parse_csv_set,
     should_auto_reply_globally,
     should_auto_reply_in_channel,
+    strip_name_trigger,
 )
 
 
@@ -71,6 +73,18 @@ class DiscordBotHelpersTests(unittest.TestCase):
                 configured_channel_names={"danteh-chat"},
             )
         )
+
+    def test_name_trigger_matches_leading_name_case_insensitively(self):
+        self.assertTrue(is_name_triggered("Danteh, are you there?"))
+        self.assertTrue(is_name_triggered("hey DANTEH can you help?"))
+
+    def test_name_trigger_does_not_match_name_inside_another_word_or_sentence(self):
+        self.assertFalse(is_name_triggered("I like danteh"))
+        self.assertFalse(is_name_triggered("dantehbot, respond"))
+
+    def test_strip_name_trigger_preserves_request(self):
+        self.assertEqual(strip_name_trigger("Hey Danteh, what time is it?"), "what time is it?")
+        self.assertEqual(strip_name_trigger("DANTEH help me"), "help me")
 
     def test_global_auto_reply_defaults_to_enabled(self):
         self.assertTrue(should_auto_reply_globally(None))

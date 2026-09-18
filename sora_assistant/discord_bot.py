@@ -109,6 +109,25 @@ def should_auto_reply_globally(value: str | None) -> bool:
     return _parse_bool(value)
 
 
+def is_name_triggered(text: str, name: str = "danteh") -> bool:
+    """Return whether a message starts by addressing the bot by name."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return False
+    pattern = rf"^\s*(?:(?:hey|hi|yo)\s+)?{re.escape(clean_name)}(?=\b)"
+    return re.match(pattern, text or "", flags=re.IGNORECASE) is not None
+
+
+def strip_name_trigger(text: str, name: str = "danteh") -> str:
+    """Remove a leading bot-name invocation while preserving the actual request."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return (text or "").strip()
+    pattern = rf"^\s*(?:(?:hey|hi|yo)\s+)?{re.escape(clean_name)}(?=\b)"
+    without_name = re.sub(pattern, "", text or "", count=1, flags=re.IGNORECASE)
+    return re.sub(r"^[\s,:;.!?\-]+", "", without_name).strip()
+
+
 def audio_suffix_for_mime_type(mime_type: str | None) -> str | None:
     if not mime_type:
         return None
@@ -205,6 +224,7 @@ class DiscordBotRuntime:
         auto_reply_all_channels: bool = True,
         auto_reply_channel_ids: set[int] | None = None,
         auto_reply_channel_names: set[str] | None = None,
+        name_trigger: str = "danteh",
         ffmpeg_path: str = "ffmpeg",
     ) -> None:
         try:
@@ -224,6 +244,7 @@ class DiscordBotRuntime:
         self.auto_reply_all_channels = auto_reply_all_channels
         self.auto_reply_channel_ids = auto_reply_channel_ids or set()
         self.auto_reply_channel_names = auto_reply_channel_names or set(DEFAULT_AUTO_REPLY_CHANNEL_NAMES)
+        self.name_trigger = name_trigger.strip() or "danteh"
         self.ffmpeg_path = ffmpeg_path
         self._discord = discord
         self._app_commands = app_commands
@@ -255,6 +276,7 @@ class DiscordBotRuntime:
             normalize_channel_name(name)
             for name in parse_csv_set(os.environ.get("SORA_DISCORD_AUTO_REPLY_CHANNEL_NAMES"))
         }
+        name_trigger = os.environ.get("SORA_DISCORD_NAME_TRIGGER", "danteh").strip() or "danteh"
         ffmpeg_path = os.environ.get("SORA_DISCORD_FFMPEG_PATH", "ffmpeg").strip() or "ffmpeg"
         return cls(
             service=service,
@@ -264,6 +286,7 @@ class DiscordBotRuntime:
             auto_reply_all_channels=auto_reply_all_channels,
             auto_reply_channel_ids=auto_reply_channel_ids,
             auto_reply_channel_names=auto_reply_channel_names,
+            name_trigger=name_trigger,
             ffmpeg_path=ffmpeg_path,
         )
 
@@ -297,6 +320,7 @@ class DiscordBotRuntime:
                 return
 
             is_mentioned = bot.user in message.mentions
+            is_name_called = is_name_triggered(message.content, self.name_trigger)
             auto_reply_channel = self.auto_reply_all_channels or should_auto_reply_in_channel(
                 channel_id=message.channel.id,
                 channel_name=getattr(message.channel, "name", None),
@@ -304,16 +328,21 @@ class DiscordBotRuntime:
                 configured_channel_names=self.auto_reply_channel_names,
             )
 
-            if not is_mentioned and not auto_reply_channel:
+            if not is_mentioned and not is_name_called and not auto_reply_channel:
                 return
-            if is_mentioned and not self.mention_replies_enabled and not auto_reply_channel:
+            if is_mentioned and not self.mention_replies_enabled and not auto_reply_channel and not is_name_called:
                 return
 
-            prompt = re.sub(rf"<@!?{bot.user.id}>", "", message.content).strip() if is_mentioned else message.content.strip()
+            prompt = message.content
+            if is_mentioned:
+                prompt = re.sub(rf"<@!?{bot.user.id}>", "", prompt)
+            if is_name_called:
+                prompt = strip_name_trigger(prompt, self.name_trigger)
+            prompt = prompt.strip()
             if not prompt:
-                if auto_reply_channel:
+                if auto_reply_channel and not is_name_called and not is_mentioned:
                     return
-                await message.reply("I am listening, sir. Mention me with a request.", mention_author=False)
+                await message.reply("I am listening, sir. What can I do?", mention_author=False)
                 return
 
             async with message.channel.typing():
@@ -325,10 +354,10 @@ class DiscordBotRuntime:
                 )
 
             chunks = chunk_discord_message(reply)
-            if auto_reply_channel and not is_mentioned:
-                await message.channel.send(chunks[0])
-            else:
+            if is_mentioned or is_name_called or not auto_reply_channel:
                 await message.reply(chunks[0], mention_author=False)
+            else:
+                await message.channel.send(chunks[0])
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
